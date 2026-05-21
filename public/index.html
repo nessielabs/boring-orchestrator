@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Boring Orchestrator</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --bg: #0a0a0a; --surface: #141414; --surface2: #1e1e1e; --border: #2a2a2a;
+      --text: #e5e5e5; --text2: #888; --accent: #3b82f6; --accent-hover: #2563eb;
+      --green: #22c55e; --red: #ef4444; --yellow: #eab308; --mono: 'SF Mono', 'Menlo', monospace;
+    }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); }
+
+    .layout { display: flex; height: 100vh; }
+    .sidebar { width: 280px; border-right: 1px solid var(--border); display: flex; flex-direction: column; background: var(--surface); flex-shrink: 0; }
+    .sidebar-header { padding: 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+    .sidebar-header h1 { font-size: 16px; font-weight: 600; }
+    .agent-list { flex: 1; overflow-y: auto; }
+    .agent-item { padding: 12px 20px; cursor: pointer; border-bottom: 1px solid var(--border); transition: background 0.1s; }
+    .agent-item:hover { background: var(--surface2); }
+    .agent-item.active { background: var(--surface2); border-left: 2px solid var(--accent); }
+    .agent-item .name { font-size: 14px; font-weight: 500; }
+    .agent-item .meta { font-size: 12px; color: var(--text2); margin-top: 4px; display: flex; gap: 8px; align-items: center; }
+    .agent-item .dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+    .dot.on { background: var(--green); }
+    .dot.off { background: var(--text2); }
+
+    .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+    .main-header { padding: 20px 24px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+    .main-header h2 { font-size: 18px; font-weight: 600; }
+    .main-content { flex: 1; overflow-y: auto; padding: 24px; }
+
+    .tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); padding: 0 24px; }
+    .tab { padding: 12px 16px; cursor: pointer; font-size: 13px; color: var(--text2); border-bottom: 2px solid transparent; transition: all 0.15s; }
+    .tab:hover { color: var(--text); }
+    .tab.active { color: var(--text); border-bottom-color: var(--accent); }
+
+    .btn { padding: 6px 14px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface2); color: var(--text); cursor: pointer; font-size: 13px; transition: all 0.15s; }
+    .btn:hover { background: var(--border); }
+    .btn-primary { background: var(--accent); border-color: var(--accent); color: white; }
+    .btn-primary:hover { background: var(--accent-hover); }
+    .btn-danger { color: var(--red); }
+    .btn-danger:hover { background: rgba(239,68,68,0.1); }
+    .btn-sm { padding: 4px 10px; font-size: 12px; }
+    .btn-group { display: flex; gap: 8px; }
+
+    .form-group { margin-bottom: 16px; }
+    .form-group label { display: block; font-size: 13px; color: var(--text2); margin-bottom: 6px; font-weight: 500; }
+    .form-group input, .form-group select, .form-group textarea {
+      width: 100%; padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border);
+      background: var(--bg); color: var(--text); font-size: 14px; font-family: inherit;
+    }
+    .form-group textarea { font-family: var(--mono); font-size: 13px; resize: vertical; min-height: 120px; line-height: 1.5; }
+    .form-group input:focus, .form-group select:focus, .form-group textarea:focus { outline: none; border-color: var(--accent); }
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .checkbox-row { display: flex; align-items: center; gap: 8px; }
+    .checkbox-row input[type="checkbox"] { width: auto; }
+
+    .empty { text-align: center; color: var(--text2); padding: 60px 20px; }
+    .empty p { margin-bottom: 16px; }
+
+    .run-list { display: flex; flex-direction: column; gap: 1px; }
+    .run-item { display: grid; grid-template-columns: auto 1fr auto auto auto; gap: 16px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); cursor: pointer; font-size: 13px; }
+    .run-item:hover { background: var(--surface); margin: 0 -24px; padding: 10px 24px; }
+    .status-badge { padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; text-transform: uppercase; }
+    .status-badge.running { background: rgba(59,130,246,0.15); color: var(--accent); }
+    .status-badge.success { background: rgba(34,197,94,0.15); color: var(--green); }
+    .status-badge.error { background: rgba(239,68,68,0.15); color: var(--red); }
+
+    .transcript { display: flex; flex-direction: column; gap: 12px; }
+    .transcript-msg { padding: 12px 16px; border-radius: 8px; font-size: 13px; line-height: 1.6; }
+    .transcript-msg.system { background: var(--surface2); color: var(--text2); font-size: 12px; }
+    .transcript-msg.assistant { background: var(--surface2); }
+    .transcript-msg.assistant pre { white-space: pre-wrap; word-break: break-word; }
+    .transcript-msg.tool_use { background: rgba(59,130,246,0.08); border-left: 3px solid var(--accent); }
+    .transcript-msg.tool_result { background: var(--surface); border-left: 3px solid var(--border); font-family: var(--mono); font-size: 12px; max-height: 300px; overflow-y: auto; }
+    .transcript-msg.result { background: rgba(34,197,94,0.08); border-left: 3px solid var(--green); }
+    .transcript-msg.error, .transcript-msg.stderr { background: rgba(239,68,68,0.08); border-left: 3px solid var(--red); }
+    .transcript-msg .label { font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text2); margin-bottom: 6px; }
+    .transcript-msg pre { white-space: pre-wrap; word-break: break-word; font-family: var(--mono); font-size: 12px; }
+
+    .run-header { margin-bottom: 20px; display: flex; justify-content: space-between; align-items: flex-start; }
+    .run-meta { display: flex; gap: 16px; color: var(--text2); font-size: 13px; margin-top: 8px; }
+    .back-link { color: var(--accent); cursor: pointer; font-size: 13px; text-decoration: none; }
+    .back-link:hover { text-decoration: underline; }
+
+    .trigger-help { font-size: 12px; color: var(--text2); margin-top: 4px; }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <div class="sidebar">
+      <div class="sidebar-header">
+        <h1>Boring Orchestrator</h1>
+        <button class="btn btn-sm btn-primary" onclick="showNewAgent()">+ New</button>
+      </div>
+      <div class="agent-list" id="agent-list"></div>
+    </div>
+    <div class="main" id="main">
+      <div class="empty" style="margin-top:120px;">
+        <p>Select an agent or create a new one</p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let agents = [];
+    let currentAgentId = null;
+    let currentView = 'config'; // 'config' | 'runs' | 'run-detail'
+    let currentRunId = null;
+
+    // --- API ---
+    async function api(path, opts = {}) {
+      const res = await fetch(path, {
+        headers: { 'Content-Type': 'application/json' },
+        ...opts,
+        body: opts.body ? JSON.stringify(opts.body) : undefined,
+      });
+      if (res.status === 204) return null;
+      return res.json();
+    }
+
+    async function loadAgents() {
+      agents = await api('/api/agents');
+      renderAgentList();
+    }
+
+    // --- Render sidebar ---
+    function renderAgentList() {
+      const el = document.getElementById('agent-list');
+      if (agents.length === 0) {
+        el.innerHTML = '<div class="empty"><p style="font-size:13px">No agents yet</p></div>';
+        return;
+      }
+      el.innerHTML = agents.map(a => `
+        <div class="agent-item ${a.id === currentAgentId ? 'active' : ''}" onclick="selectAgent('${a.id}')">
+          <div class="name">${esc(a.name)}</div>
+          <div class="meta">
+            <span class="dot ${a.enabled ? 'on' : 'off'}"></span>
+            <span>${esc(a.provider || 'claude')} &middot; ${a.trigger_type}${a.trigger_type === 'cron' ? ' &middot; ' + esc(a.trigger_config) : ''}</span>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    // --- URL routing ---
+    function pushUrl() {
+      let path = '/';
+      if (currentAgentId && currentRunId) path = `/agents/${currentAgentId}/runs/${currentRunId}`;
+      else if (currentAgentId) path = `/agents/${currentAgentId}${currentView === 'runs' ? '/runs' : ''}`;
+      if (location.pathname !== path) history.pushState(null, '', path);
+    }
+
+    async function routeFromUrl() {
+      const path = location.pathname;
+      let m;
+      if ((m = path.match(/^\/agents\/([^/]+)\/runs\/([^/]+)$/))) {
+        currentAgentId = m[1];
+        currentRunId = m[2];
+        await loadAgents();
+        await showRun(m[2]);
+      } else if ((m = path.match(/^\/agents\/([^/]+)\/runs$/))) {
+        currentAgentId = m[1];
+        currentView = 'runs';
+        currentRunId = null;
+        await loadAgents();
+        renderAgentList();
+        renderMain();
+      } else if ((m = path.match(/^\/agents\/([^/]+)$/))) {
+        currentAgentId = m[1];
+        currentView = 'config';
+        currentRunId = null;
+        await loadAgents();
+        renderAgentList();
+        renderMain();
+      } else {
+        currentAgentId = null;
+        currentRunId = null;
+        await loadAgents();
+      }
+    }
+
+    window.addEventListener('popstate', () => routeFromUrl());
+
+    // --- Select agent ---
+    async function selectAgent(id) {
+      currentAgentId = id;
+      currentView = 'config';
+      currentRunId = null;
+      renderAgentList();
+      renderMain();
+      pushUrl();
+    }
+
+    function getAgent() { return agents.find(a => a.id === currentAgentId); }
+
+    // --- Render main ---
+    function renderMain() {
+      const agent = getAgent();
+      if (!agent) return;
+      const main = document.getElementById('main');
+      main.innerHTML = `
+        <div class="main-header">
+          <h2>${esc(agent.name)}</h2>
+          <div class="btn-group">
+            <button class="btn btn-primary" onclick="triggerAgent()">Run Now</button>
+            <button class="btn btn-danger" onclick="removeAgent()">Delete</button>
+          </div>
+        </div>
+        <div class="tabs">
+          <div class="tab ${currentView === 'config' ? 'active' : ''}" onclick="switchTab('config')">Configuration</div>
+          <div class="tab ${currentView === 'runs' ? 'active' : ''}" onclick="switchTab('runs')">Run History</div>
+        </div>
+        <div class="main-content" id="tab-content"></div>
+      `;
+      if (currentView === 'config') renderConfig();
+      else if (currentView === 'runs') renderRuns();
+    }
+
+    function switchTab(tab) {
+      currentView = tab;
+      currentRunId = null;
+      renderMain();
+      pushUrl();
+    }
+
+    // --- Config tab ---
+    function renderConfig() {
+      const a = getAgent();
+      document.getElementById('tab-content').innerHTML = `
+        <form onsubmit="saveAgent(event)" style="max-width:640px">
+          <div class="form-group">
+            <label>Name</label>
+            <input name="name" value="${esc(a.name)}" required>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Trigger Type</label>
+              <select name="trigger_type" onchange="updateTriggerHelp(this.value)">
+                <option value="cron" ${a.trigger_type === 'cron' ? 'selected' : ''}>Cron</option>
+                <option value="webhook" ${a.trigger_type === 'webhook' ? 'selected' : ''}>Webhook</option>
+                <option value="manual" ${a.trigger_type === 'manual' ? 'selected' : ''}>Manual</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Trigger Config</label>
+              <input name="trigger_config" value="${esc(a.trigger_config)}" placeholder="*/10 * * * * or webhook-path">
+              <div class="trigger-help" id="trigger-help"></div>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Pre-script</label>
+            <textarea name="pre_script" rows="4" placeholder="Bash script that runs before the agent. Its stdout is available as {{pre_script_output}} in the prompt. Empty output or non-zero exit skips the run.">${esc(a.pre_script)}</textarea>
+          </div>
+          <div class="form-group">
+            <label>Prompt</label>
+            <textarea name="prompt" rows="8">${esc(a.prompt)}</textarea>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Provider</label>
+              <select name="provider" onchange="updateProviderDefaults(this.form)">
+                <option value="claude" ${(a.provider || 'claude') === 'claude' ? 'selected' : ''}>Claude</option>
+                <option value="codex" ${a.provider === 'codex' ? 'selected' : ''}>Codex</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Working Directory</label>
+              <input name="cwd" value="${esc(a.cwd)}" placeholder="(optional)">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Model</label>
+              <input name="model" value="${esc(a.model)}" placeholder="leave blank for Codex default">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <div class="checkbox-row">
+                <input type="checkbox" name="skip_permissions" id="skip_perms" ${a.skip_permissions ? 'checked' : ''}>
+                <label for="skip_perms" style="margin:0">Dangerously skip permissions</label>
+              </div>
+            </div>
+            <div class="form-group">
+              <div class="checkbox-row">
+                <input type="checkbox" name="enabled" id="enabled" ${a.enabled ? 'checked' : ''}>
+                <label for="enabled" style="margin:0">Enabled</label>
+              </div>
+            </div>
+          </div>
+          <button type="submit" class="btn btn-primary">Save Changes</button>
+        </form>
+      `;
+      updateTriggerHelp(a.trigger_type);
+    }
+
+    function updateTriggerHelp(type) {
+      const el = document.getElementById('trigger-help');
+      if (!el) return;
+      if (type === 'cron') el.textContent = 'Cron expression, e.g. */10 * * * * (every 10 min)';
+      else if (type === 'webhook') el.textContent = 'Path suffix for /webhook/{path}';
+      else el.textContent = 'No config needed for manual triggers';
+    }
+
+    async function saveAgent(e) {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      await api(`/api/agents/${currentAgentId}`, {
+        method: 'PUT',
+        body: {
+          name: fd.get('name'),
+          trigger_type: fd.get('trigger_type'),
+          trigger_config: fd.get('trigger_config'),
+          pre_script: fd.get('pre_script'),
+          prompt: fd.get('prompt'),
+          cwd: fd.get('cwd'),
+          provider: fd.get('provider'),
+          model: fd.get('model'),
+          skip_permissions: fd.has('skip_permissions'),
+          enabled: fd.has('enabled'),
+        },
+      });
+      await loadAgents();
+      renderMain();
+    }
+
+    async function removeAgent() {
+      if (!confirm('Delete this agent and all its run history?')) return;
+      await api(`/api/agents/${currentAgentId}`, { method: 'DELETE' });
+      currentAgentId = null;
+      currentRunId = null;
+      await loadAgents();
+      document.getElementById('main').innerHTML = '<div class="empty" style="margin-top:120px"><p>Select an agent or create a new one</p></div>';
+      pushUrl();
+    }
+
+    async function triggerAgent() {
+      const res = await api(`/api/agents/${currentAgentId}/trigger`, { method: 'POST' });
+      if (res?.run_id) {
+        currentView = 'runs';
+        renderMain();
+      }
+    }
+
+    // --- Runs tab ---
+    async function renderRuns() {
+      const runs = await api(`/api/agents/${currentAgentId}/runs`);
+      const el = document.getElementById('tab-content');
+      if (runs.length === 0) {
+        el.innerHTML = '<div class="empty"><p>No runs yet</p></div>';
+        return;
+      }
+      el.innerHTML = `
+        <div class="run-list">
+          ${runs.map(r => `
+            <div class="run-item" onclick="showRun('${r.id}')">
+              <span class="status-badge ${r.status}">${r.status}</span>
+              <span>${new Date(r.started_at + 'Z').toLocaleString()}</span>
+              <span>${r.num_turns ?? '-'} turns</span>
+              <span>${r.total_cost_usd != null ? '$' + r.total_cost_usd.toFixed(4) : '-'}</span>
+              <span>${r.duration_ms != null ? (r.duration_ms / 1000).toFixed(1) + 's' : 'running...'}</span>
+            </div>
+          `).join('')}
+        </div>
+      `;
+    }
+
+    // --- Run detail ---
+    async function showRun(runId) {
+      const run = await api(`/api/runs/${runId}`);
+      const agent = getAgent();
+      const main = document.getElementById('main');
+
+      let transcript = [];
+      try { transcript = JSON.parse(run.transcript || '[]'); } catch {}
+
+      currentRunId = runId;
+      pushUrl();
+
+      main.innerHTML = `
+        <div class="main-header">
+          <div>
+            <a class="back-link" onclick="switchTab('runs')">&larr; ${esc(agent?.name || 'Back')}</a>
+            <h2 style="margin-top:4px">Run ${run.id.slice(0, 8)}</h2>
+            <div class="run-meta">
+              <span class="status-badge ${run.status}">${run.status}</span>
+              <span>${new Date(run.started_at + 'Z').toLocaleString()}</span>
+              <span>${run.num_turns ?? '-'} turns</span>
+              <span>${run.total_cost_usd != null ? '$' + run.total_cost_usd.toFixed(4) : '-'}</span>
+              <span>${run.duration_ms != null ? (run.duration_ms / 1000).toFixed(1) + 's' : 'running...'}</span>
+            </div>
+          </div>
+        </div>
+        <div class="main-content">
+          <div class="transcript">
+            ${transcript.map(msg => renderTranscriptMsg(msg)).join('')}
+          </div>
+        </div>
+      `;
+
+      if (run.status === 'running') {
+        setTimeout(() => {
+          if (currentRunId === runId) showRun(runId);
+        }, 2000);
+      }
+    }
+
+    function renderTranscriptMsg(msg) {
+      if (typeof msg === 'string') {
+        try { msg = JSON.parse(msg); } catch { return `<div class="transcript-msg system"><pre>${esc(msg)}</pre></div>`; }
+      }
+
+      const type = msg.type || 'unknown';
+
+      if (type === 'thread.started') {
+        return `<div class="transcript-msg system">
+          <div class="label">Thread Started</div>
+          <pre>${esc(msg.thread_id || '')}</pre>
+        </div>`;
+      }
+
+      if (type === 'turn.started') {
+        return `<div class="transcript-msg system">
+          <div class="label">Turn Started</div>
+        </div>`;
+      }
+
+      if (type === 'system') {
+        const info = msg.message || `Model: ${msg.model || 'unknown'}`;
+        return `<div class="transcript-msg system">
+          <div class="label">System</div>
+          <pre>${esc(info)}</pre>
+        </div>`;
+      }
+
+      if (type === 'assistant') {
+        // stream-json nests content under msg.message.content[]
+        let text = '';
+        const inner = msg.message;
+        if (inner && typeof inner === 'object') {
+          const contentArr = inner.content || [];
+          text = contentArr
+            .filter(c => c.type === 'text')
+            .map(c => c.text || '')
+            .join('');
+        } else if (typeof inner === 'string') {
+          text = inner;
+        }
+        if (!text) return '';
+        return `<div class="transcript-msg assistant">
+          <div class="label">Assistant</div>
+          <pre>${esc(text)}</pre>
+        </div>`;
+      }
+
+      if (type === 'item.completed') {
+        const item = msg.item || {};
+        if (item.type === 'agent_message') {
+          return `<div class="transcript-msg assistant">
+            <div class="label">Assistant</div>
+            <pre>${esc(item.text || '')}</pre>
+          </div>`;
+        }
+        if (item.type === 'command_execution') {
+          return `<div class="transcript-msg tool_result">
+            <div class="label">Command</div>
+            <pre>${esc(item.command || JSON.stringify(item, null, 2))}</pre>
+          </div>`;
+        }
+      }
+
+      if (type === 'turn.completed') {
+        const usage = msg.usage || {};
+        return `<div class="transcript-msg result">
+          <div class="label">Result</div>
+          <pre>Input: ${usage.input_tokens ?? '-'} | Output: ${usage.output_tokens ?? '-'} | Reasoning: ${usage.reasoning_output_tokens ?? '-'}</pre>
+        </div>`;
+      }
+
+      if (type === 'tool_use') {
+        return `<div class="transcript-msg tool_use">
+          <div class="label">Tool: ${esc(msg.tool || msg.name || 'unknown')}</div>
+          <pre>${esc(typeof msg.input === 'string' ? msg.input : JSON.stringify(msg.input, null, 2))}</pre>
+        </div>`;
+      }
+
+      if (type === 'tool_result') {
+        const content = msg.content || msg.output || '';
+        return `<div class="transcript-msg tool_result">
+          <div class="label">Tool Result</div>
+          <pre>${esc(typeof content === 'string' ? content : JSON.stringify(content, null, 2))}</pre>
+        </div>`;
+      }
+
+      if (type === 'result') {
+        return `<div class="transcript-msg result">
+          <div class="label">Result</div>
+          <pre>Turns: ${msg.num_turns || 0} | Cost: $${(msg.total_cost_usd || 0).toFixed(4)} | Duration: ${((msg.duration_ms || 0) / 1000).toFixed(1)}s</pre>
+          ${msg.result ? `<pre>${esc(msg.result)}</pre>` : ''}
+        </div>`;
+      }
+
+      if (type === 'pre_script') {
+        return `<div class="transcript-msg tool_result">
+          <div class="label">Pre-script Output</div>
+          <pre>${esc(msg.text)}</pre>
+        </div>`;
+      }
+
+      if (type === 'rate_limit_event') return '';
+
+      if (type === 'stderr' || type === 'error') {
+        if (type === 'stderr' && isNoisyCodexWarning(msg.text || '')) return '';
+        return `<div class="transcript-msg error">
+          <div class="label">${esc(type)}</div>
+          <pre>${esc(msg.text || (typeof msg.message === 'string' ? msg.message : '') || JSON.stringify(msg))}</pre>
+        </div>`;
+      }
+
+      // fallback
+      return `<div class="transcript-msg system">
+        <pre>${esc(JSON.stringify(msg, null, 2))}</pre>
+      </div>`;
+    }
+
+    // --- New agent ---
+    function showNewAgent() {
+      currentAgentId = null;
+      currentRunId = null;
+      renderAgentList();
+      pushUrl();
+      const main = document.getElementById('main');
+      main.innerHTML = `
+        <div class="main-header"><h2>New Agent</h2></div>
+        <div class="main-content">
+          <form onsubmit="createNewAgent(event)" style="max-width:640px">
+            <div class="form-group">
+              <label>Name</label>
+              <input name="name" required placeholder="e.g. PR Review Bot">
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Trigger Type</label>
+                <select name="trigger_type">
+                  <option value="cron">Cron</option>
+                  <option value="webhook">Webhook</option>
+                  <option value="manual" selected>Manual</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Trigger Config</label>
+                <input name="trigger_config" placeholder="*/10 * * * * or webhook-path">
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Pre-script</label>
+              <textarea name="pre_script" rows="4" placeholder="Bash script runs before agent. stdout -> {{pre_script_output}}. Empty/non-zero skips run."></textarea>
+            </div>
+            <div class="form-group">
+              <label>Prompt</label>
+              <textarea name="prompt" rows="8" required placeholder="Instructions for the agent..."></textarea>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Provider</label>
+                <select name="provider" onchange="updateProviderDefaults(this.form)">
+                  <option value="claude" selected>Claude</option>
+                  <option value="codex">Codex</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Working Directory</label>
+                <input name="cwd" placeholder="/path/to/repo (optional)">
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Model</label>
+                <input name="model" value="claude-sonnet-4-6" placeholder="leave blank for Codex default">
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <div class="checkbox-row">
+                  <input type="checkbox" name="skip_permissions" id="new_skip">
+                  <label for="new_skip" style="margin:0">Dangerously skip permissions</label>
+                </div>
+              </div>
+              <div class="form-group">
+                <div class="checkbox-row">
+                  <input type="checkbox" name="enabled" id="new_enabled" checked>
+                  <label for="new_enabled" style="margin:0">Enabled</label>
+                </div>
+              </div>
+            </div>
+            <button type="submit" class="btn btn-primary">Create Agent</button>
+          </form>
+        </div>
+      `;
+    }
+
+    async function createNewAgent(e) {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const agent = await api('/api/agents', {
+        method: 'POST',
+        body: {
+          name: fd.get('name'),
+          trigger_type: fd.get('trigger_type'),
+          trigger_config: fd.get('trigger_config'),
+          pre_script: fd.get('pre_script'),
+          prompt: fd.get('prompt'),
+          cwd: fd.get('cwd'),
+          provider: fd.get('provider'),
+          model: fd.get('model'),
+          skip_permissions: fd.has('skip_permissions'),
+          enabled: fd.has('enabled'),
+        },
+      });
+      await loadAgents();
+      await selectAgent(agent.id);
+    }
+
+    function esc(s) {
+      if (!s) return '';
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    function updateProviderDefaults(form) {
+      const provider = form.provider?.value || 'claude';
+      const model = form.model;
+      if (!model) return;
+      if (provider === 'codex' && model.value.startsWith('claude-')) model.value = '';
+      if (provider === 'claude' && !model.value.trim()) model.value = 'claude-sonnet-4-6';
+    }
+
+    function isNoisyCodexWarning(text) {
+      return text.includes('WARN codex_core_plugins::manifest: ignoring interface.defaultPrompt')
+        || text.includes('WARN codex_core_skills::loader: ignoring interface.icon_')
+        || text.includes('WARN codex_core::session::turn: after_agent hook failed; continuing')
+        || text.includes('WARN codex_rmcp_client::stdio_server_launcher: Failed to kill MCP process group');
+    }
+
+    // auto-refresh runs tab every 5s
+    let refreshInterval = null;
+    function startAutoRefresh() {
+      stopAutoRefresh();
+      refreshInterval = setInterval(() => {
+        if (currentView === 'runs' && !currentRunId) renderRuns();
+      }, 5000);
+    }
+    function stopAutoRefresh() {
+      if (refreshInterval) { clearInterval(refreshInterval); refreshInterval = null; }
+    }
+
+    // boot
+    routeFromUrl();
+    startAutoRefresh();
+  </script>
+</body>
+</html>
