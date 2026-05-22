@@ -166,7 +166,12 @@ export function executeAgent(agent: Agent, triggerPayload?: string): string | nu
       meta.num_turns += 1;
       if (parsed.usage) {
         const model = agent.model?.trim() || "o4-mini";
-        meta.total_cost_usd += computeOpenAICost(model, parsed.usage);
+        const cost = computeOpenAICost(model, parsed.usage);
+        if (cost !== null) {
+          meta.total_cost_usd += cost;
+        } else {
+          console.warn(`[executor] Agent "${agent.name}": unknown model "${model}", cannot compute cost`);
+        }
       }
     }
   }
@@ -196,11 +201,13 @@ const OPENAI_PRICING: Record<string, { input: number; cached_input: number; outp
 function computeOpenAICost(
   model: string,
   usage: { input_tokens?: number; cached_input_tokens?: number; output_tokens?: number; reasoning_output_tokens?: number },
-): number {
-  const pricing = OPENAI_PRICING[model] || OPENAI_PRICING["o4-mini"];
-  const cached = usage.cached_input_tokens || 0;
-  const nonCachedInput = (usage.input_tokens || 0) - cached;
-  const output = (usage.output_tokens || 0); // includes reasoning tokens
+): number | null {
+  const pricing = OPENAI_PRICING[model];
+  if (!pricing) return null;
+  const input = Math.max(usage.input_tokens ?? 0, 0);
+  const cached = Math.max(Math.min(usage.cached_input_tokens ?? 0, input), 0);
+  const nonCachedInput = input - cached;
+  const output = Math.max(usage.output_tokens ?? 0, 0);
   return (
     (nonCachedInput * pricing.input +
       cached * pricing.cached_input +
