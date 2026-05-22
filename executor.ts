@@ -172,14 +172,25 @@ export function executeAgent(agent: Agent, triggerPayload?: string): string | nu
   }
 }
 
-// OpenAI pricing per million tokens
+// OpenAI pricing per million tokens (https://developers.openai.com/api/docs/pricing)
 const OPENAI_PRICING: Record<string, { input: number; cached_input: number; output: number }> = {
-  "o4-mini":    { input: 1.10,  cached_input: 0.275, output: 4.40 },
-  "o3":         { input: 2.00,  cached_input: 0.50,  output: 8.00 },
-  "o3-mini":    { input: 1.10,  cached_input: 0.275, output: 4.40 },
-  "gpt-4.1":    { input: 2.00,  cached_input: 0.50,  output: 8.00 },
-  "gpt-4.1-mini": { input: 0.40, cached_input: 0.10, output: 1.60 },
-  "gpt-4.1-nano": { input: 0.10, cached_input: 0.025, output: 0.40 },
+  // GPT-5.x
+  "gpt-5.5":      { input: 5.00,  cached_input: 0.50,  output: 30.00 },
+  "gpt-5.4":      { input: 2.50,  cached_input: 0.25,  output: 15.00 },
+  "gpt-5.4-mini": { input: 0.75,  cached_input: 0.075, output: 4.50 },
+  "gpt-5.4-nano": { input: 0.20,  cached_input: 0.02,  output: 1.25 },
+  "gpt-5.3-codex": { input: 1.75, cached_input: 0.175, output: 14.00 },
+  // GPT-4.1
+  "gpt-4.1":      { input: 2.00,  cached_input: 0.50,  output: 8.00 },
+  "gpt-4.1-mini": { input: 0.40,  cached_input: 0.10,  output: 1.60 },
+  "gpt-4.1-nano": { input: 0.10,  cached_input: 0.025, output: 0.40 },
+  // GPT-4o
+  "gpt-4o":       { input: 2.50,  cached_input: 1.25,  output: 10.00 },
+  "gpt-4o-mini":  { input: 0.15,  cached_input: 0.075, output: 0.60 },
+  // o-series reasoning
+  "o4-mini":      { input: 1.10,  cached_input: 0.275, output: 4.40 },
+  "o3":           { input: 2.00,  cached_input: 0.50,  output: 8.00 },
+  "o3-mini":      { input: 1.10,  cached_input: 0.55,  output: 4.40 },
 };
 
 function computeOpenAICost(
