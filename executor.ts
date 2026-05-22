@@ -164,8 +164,38 @@ export function executeAgent(agent: Agent, triggerPayload?: string): string | nu
 
     if (parsed.type === "turn.completed") {
       meta.num_turns += 1;
+      if (parsed.usage) {
+        const model = agent.model?.trim() || "o4-mini";
+        meta.total_cost_usd += computeOpenAICost(model, parsed.usage);
+      }
     }
   }
+}
+
+// OpenAI pricing per million tokens
+const OPENAI_PRICING: Record<string, { input: number; cached_input: number; output: number }> = {
+  "o4-mini":    { input: 1.10,  cached_input: 0.275, output: 4.40 },
+  "o3":         { input: 2.00,  cached_input: 0.50,  output: 8.00 },
+  "o3-mini":    { input: 1.10,  cached_input: 0.275, output: 4.40 },
+  "gpt-4.1":    { input: 2.00,  cached_input: 0.50,  output: 8.00 },
+  "gpt-4.1-mini": { input: 0.40, cached_input: 0.10, output: 1.60 },
+  "gpt-4.1-nano": { input: 0.10, cached_input: 0.025, output: 0.40 },
+};
+
+function computeOpenAICost(
+  model: string,
+  usage: { input_tokens?: number; cached_input_tokens?: number; output_tokens?: number; reasoning_output_tokens?: number },
+): number {
+  const pricing = OPENAI_PRICING[model] || OPENAI_PRICING["o4-mini"];
+  const cached = usage.cached_input_tokens || 0;
+  const nonCachedInput = (usage.input_tokens || 0) - cached;
+  const output = (usage.output_tokens || 0); // includes reasoning tokens
+  return (
+    (nonCachedInput * pricing.input +
+      cached * pricing.cached_input +
+      output * pricing.output) /
+    1_000_000
+  );
 }
 
 function claudeArgs(agent: Agent, prompt: string): string[] {
