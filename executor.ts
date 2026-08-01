@@ -1,29 +1,64 @@
 import { spawn, execSync } from "child_process";
+import { isAbsolute } from "path";
+import { statSync } from "fs";
 import { createRun, appendTranscript, finishRun, hasRunningRun, type Agent } from "./db.js";
 import { computeOpenAICost } from "./pricing.js";
+import { parsePreScriptOutput, type PreScriptControl } from "./pre-script-control.js";
 
-function runPreScript(agent: Agent): { ok: boolean; output: string } {
-  if (!agent.pre_script.trim()) return { ok: true, output: "" };
+interface PreScriptResult {
+  ok: boolean;
+  output: string;
+  control: PreScriptControl;
+}
 
+function runPreScript(agent: Agent): PreScriptResult {
+  if (!agent.pre_script.trim()) return { ok: true, output: "", control: {} };
+
+  let rawOutput = "";
   try {
-    const output = execSync(agent.pre_script, {
+    rawOutput = execSync(agent.pre_script, {
+      cwd: agent.cwd || undefined,
+      timeout: 60_000,
+      encoding: "utf-8",
+      shell: "/bin/bash",
+      env: process.env,
+    });
+  } catch (err: any) {
+    const reason = err.killed ? `timeout (${err.signal})` : `exit code ${err.status}`;
+    console.log(`[executor] Agent "${agent.name}" pre-script failed: ${reason}, skipping run`);
+    return parsePreScriptResult(agent, err.stdout || "", false);
+  }
+
+  return parsePreScriptResult(agent, rawOutput, true);
+}
+
+function parsePreScriptResult(agent: Agent, rawOutput: string, commandSucceeded: boolean): PreScriptResult {
+  try {
+    const parsed = parsePreScriptOutput(rawOutput);
+    if (commandSucceeded && !parsed.promptOutput) {
+      console.log(`[executor] Agent "${agent.name}" pre-script returned empty prompt output, skipping run`);
+      return { ok: false, output: "", control: parsed.control };
+    }
+    return { ok: commandSucceeded, output: parsed.promptOutput, control: parsed.control };
+  } catch (err: any) {
+    console.log(`[executor] Agent "${agent.name}" pre-script control error: ${err.message}, skipping run`);
+    return { ok: false, output: "", control: {} };
+  }
+}
+
+function runCleanupScript(agent: Agent, cleanupScript: string | undefined): { ok: boolean; output: string } | null {
+  if (!cleanupScript) return null;
+  try {
+    const output = execSync(cleanupScript, {
       cwd: agent.cwd || undefined,
       timeout: 60_000,
       encoding: "utf-8",
       shell: "/bin/bash",
       env: process.env,
     }).trim();
-
-    if (!output) {
-      console.log(`[executor] Agent "${agent.name}" pre-script returned empty output, skipping run`);
-      return { ok: false, output: "" };
-    }
-
     return { ok: true, output };
   } catch (err: any) {
-    const reason = err.killed ? `timeout (${err.signal})` : `exit code ${err.status}`;
-    console.log(`[executor] Agent "${agent.name}" pre-script failed: ${reason}, skipping run`);
-    return { ok: false, output: err.stdout?.trim() || "" };
+    return { ok: false, output: err.stderr?.trim() || err.message };
   }
 }
 
@@ -35,7 +70,23 @@ export function executeAgent(agent: Agent, triggerPayload?: string): string | nu
 
   // Run pre-script first
   const pre = runPreScript(agent);
-  if (!pre.ok) return null;
+  if (!pre.ok) {
+    runCleanupScript(agent, pre.control.cleanup_script);
+    return null;
+  }
+
+  const runCwd = pre.control.cwd || agent.cwd || undefined;
+  if (runCwd) {
+    try {
+      if (!isAbsolute(runCwd) || !statSync(runCwd).isDirectory()) {
+        throw new Error("cwd must be an existing absolute directory");
+      }
+    } catch (err: any) {
+      console.log(`[executor] Agent "${agent.name}" pre-script cwd is invalid: ${err.message}, skipping run`);
+      runCleanupScript(agent, pre.control.cleanup_script);
+      return null;
+    }
+  }
 
   // Inject pre-script output into prompt via {{pre_script_output}}
   const prompt = pre.output
@@ -46,6 +97,9 @@ export function executeAgent(agent: Agent, triggerPayload?: string): string | nu
 
   if (pre.output) {
     appendTranscript(run.id, JSON.stringify({ type: "pre_script", text: pre.output }));
+  }
+  if (pre.control.cwd) {
+    appendTranscript(run.id, JSON.stringify({ type: "pre_script_workspace", cwd: pre.control.cwd }));
   }
 
   const provider = agent.provider || "claude";
@@ -60,8 +114,8 @@ export function executeAgent(agent: Agent, triggerPayload?: string): string | nu
     },
   };
 
-  if (agent.cwd) {
-    spawnOpts.cwd = agent.cwd;
+  if (runCwd) {
+    spawnOpts.cwd = runCwd;
   }
 
   const child = spawn(command, args, { ...spawnOpts, stdio: provider === "codex" ? ["pipe", "pipe", "pipe"] : ["ignore", "pipe", "pipe"] });
@@ -73,6 +127,22 @@ export function executeAgent(agent: Agent, triggerPayload?: string): string | nu
   let resultText = "";
   let meta = { duration_ms: 0, total_cost_usd: 0, num_turns: 0 };
   const startedAt = Date.now();
+  let cleanupComplete = false;
+
+  function cleanupWorkspace(): void {
+    if (cleanupComplete) return;
+    cleanupComplete = true;
+    const cleanup = runCleanupScript(agent, pre.control.cleanup_script);
+    if (!cleanup) return;
+    appendTranscript(run.id, JSON.stringify({
+      type: "cleanup_script",
+      status: cleanup.ok ? "success" : "error",
+      text: cleanup.output,
+    }));
+    if (!cleanup.ok) {
+      console.error(`[executor] Agent "${agent.name}" run ${run.id} cleanup failed: ${cleanup.output}`);
+    }
+  }
 
   child.stdout!.on("data", (chunk: Buffer) => {
     buffer += chunk.toString();
@@ -113,6 +183,7 @@ export function executeAgent(agent: Agent, triggerPayload?: string): string | nu
     if (!meta.duration_ms) {
       meta.duration_ms = Date.now() - startedAt;
     }
+    cleanupWorkspace();
     try {
       finishRun(run.id, status, { ...meta, result_text: resultText });
       console.log(`[executor] Agent "${agent.name}" run ${run.id} finished: ${status} (${meta.duration_ms}ms, $${meta.total_cost_usd.toFixed(4)}, ${meta.num_turns} turns)`);
@@ -124,6 +195,7 @@ export function executeAgent(agent: Agent, triggerPayload?: string): string | nu
 
   child.on("error", (err) => {
     appendTranscript(run.id, JSON.stringify({ type: "error", text: err.message }));
+    cleanupWorkspace();
     finishRun(run.id, "error", { result_text: err.message });
     console.error(`[executor] Agent "${agent.name}" run ${run.id} spawn error:`, err.message);
   });

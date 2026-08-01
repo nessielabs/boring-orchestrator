@@ -37,6 +37,16 @@ PORT=3000 npm start
 - The "Dangerously skip permissions" checkbox maps to `--dangerously-skip-permissions` for Claude and `--dangerously-bypass-approvals-and-sandbox` for Codex.
 - Optional pre-scripts run before the agent. Their stdout is available to the prompt as `{{pre_script_output}}`; empty output or a non-zero exit skips the run.
 
+### Pre-script workspaces
+
+A pre-script can prepare an isolated workspace and ask the executor to run the agent there. Emit one reserved control line alongside the ordinary prompt output:
+
+```text
+::boring-orchestrator::{"cwd":"/absolute/path/to/worktree","cleanup_script":"git -C /path/to/repo worktree remove --force /absolute/path/to/worktree"}
+```
+
+The control line is removed before `{{pre_script_output}}` is expanded. `cwd` must be an existing absolute directory. The optional cleanup script runs once after the agent exits or fails to start, and also runs when a prepared workspace is followed by empty output or a pre-script failure.
+
 ## Notes
 
 This is a trusted local tool. Agent prompts and pre-scripts can execute commands in your environment, especially if you enable skipped permissions. Do not expose it to the public internet without adding your own access control.
