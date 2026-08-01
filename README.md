@@ -53,6 +53,8 @@ A pre-script can launch up to 20 runs in parallel by emitting a single fan-out c
 ::boring-orchestrator::{"runs":[{"prompt_output":"review PR 1","cwd":"/tmp/pr-1","cleanup_script":"cleanup-pr-1"},{"prompt_output":"review PR 2","cwd":"/tmp/pr-2","cleanup_script":"cleanup-pr-2"}]}
 ```
 
+The production PR reviewer uses `scripts/check-prs.sh` to discover every pending review request, reuse a persistent blobless repository cache, and prepare one exact-head detached worktree per parallel run.
+
 ## Notes
 
 This is a trusted local tool. Agent prompts and pre-scripts can execute commands in your environment, especially if you enable skipped permissions. Do not expose it to the public internet without adding your own access control.
