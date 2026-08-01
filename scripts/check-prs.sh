@@ -155,8 +155,7 @@ for selected in "${review_requests[@]}"; do
   fi
 
   base_ref=$(echo "$pr_refs" | jq -r '.base.ref')
-  base_sha=$(echo "$pr_refs" | jq -r '.base.sha')
-  head_sha=$(echo "$pr_refs" | jq -r '.head.sha')
+  expected_head_sha=$(echo "$pr_refs" | jq -r '.head.sha')
   repo_key=${repo//\//__}
   cache_repo="$REPO_CACHE_ROOT/$repo_key.git"
 
@@ -175,10 +174,10 @@ for selected in "${review_requests[@]}"; do
     "+refs/heads/$base_ref:refs/review/base-$number" \
     "+refs/pull/$number/head:refs/review/head-$number" || exit 1
 
-  fetched_base_sha=$(git --git-dir="$cache_repo" rev-parse "refs/review/base-$number^{commit}") || exit 1
-  fetched_head_sha=$(git --git-dir="$cache_repo" rev-parse "refs/review/head-$number^{commit}") || exit 1
+  base_sha=$(git --git-dir="$cache_repo" rev-parse "refs/review/base-$number^{commit}") || exit 1
+  head_sha=$(git --git-dir="$cache_repo" rev-parse "refs/review/head-$number^{commit}") || exit 1
 
-  if [ "$fetched_base_sha" != "$base_sha" ] || [ "$fetched_head_sha" != "$head_sha" ]; then
+  if [ "$head_sha" != "$expected_head_sha" ]; then
     echo "PR changed while preparing review workspace; retrying on the next tick" >&2
     exit 1
   fi
