@@ -80,9 +80,9 @@ router.delete("/api/agents/:id", (req, res) => {
 router.post("/api/agents/:id/trigger", (req, res) => {
   const agent = getAgent(req.params.id);
   if (!agent) return res.status(404).json({ error: "Agent not found" });
-  const runId = executeAgent(agent, JSON.stringify({ trigger: "manual" }));
-  if (!runId) return res.json({ skipped: true, reason: "pre-script returned empty or exited non-zero" });
-  res.json({ run_id: runId });
+  const runIds = executeAgent(agent, JSON.stringify({ trigger: "manual" }));
+  if (!runIds) return res.json({ skipped: true, reason: "pre-script returned empty or exited non-zero" });
+  res.json({ run_id: runIds[0], run_ids: runIds });
 });
 
 // --- Runs ---

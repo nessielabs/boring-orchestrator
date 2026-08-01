@@ -47,6 +47,12 @@ A pre-script can prepare an isolated workspace and ask the executor to run the a
 
 The control line is removed before `{{pre_script_output}}` is expanded. `cwd` must be an existing absolute directory. The optional cleanup script runs once after the agent exits or fails to start, and also runs when a prepared workspace is followed by empty output or a pre-script failure.
 
+A pre-script can launch up to 20 runs in parallel by emitting a single fan-out control line. Each item receives its own prompt expansion, working directory, run record, transcript, cost accounting, and cleanup lifecycle:
+
+```text
+::boring-orchestrator::{"runs":[{"prompt_output":"review PR 1","cwd":"/tmp/pr-1","cleanup_script":"cleanup-pr-1"},{"prompt_output":"review PR 2","cwd":"/tmp/pr-2","cleanup_script":"cleanup-pr-2"}]}
+```
+
 ## Notes
 
 This is a trusted local tool. Agent prompts and pre-scripts can execute commands in your environment, especially if you enable skipped permissions. Do not expose it to the public internet without adding your own access control.

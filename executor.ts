@@ -7,12 +7,16 @@ import { parsePreScriptOutput, type PreScriptControl } from "./pre-script-contro
 
 interface PreScriptResult {
   ok: boolean;
+  runs: PreparedRun[];
+}
+
+interface PreparedRun {
   output: string;
   control: PreScriptControl;
 }
 
 function runPreScript(agent: Agent): PreScriptResult {
-  if (!agent.pre_script.trim()) return { ok: true, output: "", control: {} };
+  if (!agent.pre_script.trim()) return { ok: true, runs: [{ output: "", control: {} }] };
 
   let rawOutput = "";
   try {
@@ -22,6 +26,7 @@ function runPreScript(agent: Agent): PreScriptResult {
       encoding: "utf-8",
       shell: "/bin/bash",
       env: process.env,
+      maxBuffer: 25 * 1024 * 1024,
     });
   } catch (err: any) {
     const reason = err.killed ? `timeout (${err.signal})` : `exit code ${err.status}`;
@@ -35,14 +40,24 @@ function runPreScript(agent: Agent): PreScriptResult {
 function parsePreScriptResult(agent: Agent, rawOutput: string, commandSucceeded: boolean): PreScriptResult {
   try {
     const parsed = parsePreScriptOutput(rawOutput);
-    if (commandSucceeded && !parsed.promptOutput) {
+    const runs: PreparedRun[] = parsed.control.runs
+      ? parsed.control.runs.map(run => ({
+          output: run.prompt_output,
+          control: { cwd: run.cwd, cleanup_script: run.cleanup_script },
+        }))
+      : [{
+          output: parsed.promptOutput,
+          control: { cwd: parsed.control.cwd, cleanup_script: parsed.control.cleanup_script },
+        }];
+
+    if (commandSucceeded && !parsed.control.runs && !parsed.promptOutput) {
       console.log(`[executor] Agent "${agent.name}" pre-script returned empty prompt output, skipping run`);
-      return { ok: false, output: "", control: parsed.control };
+      return { ok: false, runs };
     }
-    return { ok: commandSucceeded, output: parsed.promptOutput, control: parsed.control };
+    return { ok: commandSucceeded, runs };
   } catch (err: any) {
     console.log(`[executor] Agent "${agent.name}" pre-script control error: ${err.message}, skipping run`);
-    return { ok: false, output: "", control: {} };
+    return { ok: false, runs: [] };
   }
 }
 
@@ -62,7 +77,7 @@ function runCleanupScript(agent: Agent, cleanupScript: string | undefined): { ok
   }
 }
 
-export function executeAgent(agent: Agent, triggerPayload?: string): string | null {
+export function executeAgent(agent: Agent, triggerPayload?: string): string[] | null {
   if (hasRunningRun(agent.id)) {
     console.log(`[executor] Agent "${agent.name}" already has a running run, skipping`);
     return null;
@@ -71,11 +86,20 @@ export function executeAgent(agent: Agent, triggerPayload?: string): string | nu
   // Run pre-script first
   const pre = runPreScript(agent);
   if (!pre.ok) {
-    runCleanupScript(agent, pre.control.cleanup_script);
+    for (const prepared of pre.runs) {
+      runCleanupScript(agent, prepared.control.cleanup_script);
+    }
     return null;
   }
 
-  const runCwd = pre.control.cwd || agent.cwd || undefined;
+  const runIds = pre.runs
+    .map(prepared => startPreparedRun(agent, prepared, triggerPayload))
+    .filter((runId): runId is string => runId !== null);
+  return runIds.length ? runIds : null;
+}
+
+function startPreparedRun(agent: Agent, prepared: PreparedRun, triggerPayload?: string): string | null {
+  const runCwd = prepared.control.cwd || agent.cwd || undefined;
   if (runCwd) {
     try {
       if (!isAbsolute(runCwd) || !statSync(runCwd).isDirectory()) {
@@ -83,23 +107,23 @@ export function executeAgent(agent: Agent, triggerPayload?: string): string | nu
       }
     } catch (err: any) {
       console.log(`[executor] Agent "${agent.name}" pre-script cwd is invalid: ${err.message}, skipping run`);
-      runCleanupScript(agent, pre.control.cleanup_script);
+      runCleanupScript(agent, prepared.control.cleanup_script);
       return null;
     }
   }
 
   // Inject pre-script output into prompt via {{pre_script_output}}
-  const prompt = pre.output
-    ? agent.prompt.replace(/\{\{pre_script_output\}\}/g, pre.output)
+  const prompt = prepared.output
+    ? agent.prompt.replace(/\{\{pre_script_output\}\}/g, prepared.output)
     : agent.prompt;
 
   const run = createRun(agent.id, triggerPayload);
 
-  if (pre.output) {
-    appendTranscript(run.id, JSON.stringify({ type: "pre_script", text: pre.output }));
+  if (prepared.output) {
+    appendTranscript(run.id, JSON.stringify({ type: "pre_script", text: prepared.output }));
   }
-  if (pre.control.cwd) {
-    appendTranscript(run.id, JSON.stringify({ type: "pre_script_workspace", cwd: pre.control.cwd }));
+  if (prepared.control.cwd) {
+    appendTranscript(run.id, JSON.stringify({ type: "pre_script_workspace", cwd: prepared.control.cwd }));
   }
 
   const provider = agent.provider || "claude";
@@ -132,7 +156,7 @@ export function executeAgent(agent: Agent, triggerPayload?: string): string | nu
   function cleanupWorkspace(): void {
     if (cleanupComplete) return;
     cleanupComplete = true;
-    const cleanup = runCleanupScript(agent, pre.control.cleanup_script);
+    const cleanup = runCleanupScript(agent, prepared.control.cleanup_script);
     if (!cleanup) return;
     appendTranscript(run.id, JSON.stringify({
       type: "cleanup_script",
