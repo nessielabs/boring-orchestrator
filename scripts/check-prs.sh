@@ -147,15 +147,16 @@ for selected in "${review_requests[@]}"; do
   # Re-query immediately before preparing each workspace so every run is pinned
   # to the exact open PR head rather than the earlier discovery snapshot.
   pr_context=$(gh pr view "$number" --repo "$repo" --json \
-    number,title,body,author,url,state,isDraft,baseRefName,baseRefOid,headRefName,headRefOid,additions,deletions,changedFiles,files,comments,reviews,commits) || exit 1
+    number,title,body,author,url,state,isDraft,baseRefName,headRefName,headRefOid,additions,deletions,changedFiles,files,comments,reviews,commits) || exit 1
+  pr_refs=$(gh api "repos/$repo/pulls/$number") || exit 1
 
-  if [ "$(echo "$pr_context" | jq -r '.state')" != "OPEN" ]; then
+  if [ "$(echo "$pr_refs" | jq -r '.state')" != "open" ]; then
     continue
   fi
 
-  base_ref=$(echo "$pr_context" | jq -r '.baseRefName')
-  base_sha=$(echo "$pr_context" | jq -r '.baseRefOid')
-  head_sha=$(echo "$pr_context" | jq -r '.headRefOid')
+  base_ref=$(echo "$pr_refs" | jq -r '.base.ref')
+  base_sha=$(echo "$pr_refs" | jq -r '.base.sha')
+  head_sha=$(echo "$pr_refs" | jq -r '.head.sha')
   repo_key=${repo//\//__}
   cache_repo="$REPO_CACHE_ROOT/$repo_key.git"
 
