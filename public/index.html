@@ -277,6 +277,19 @@
               <label>Model</label>
               <input name="model" value="${esc(a.model)}" placeholder="leave blank for Codex default">
             </div>
+            <div class="form-group">
+              <label>Reasoning Effort</label>
+              <select name="reasoning_effort">
+                <option value="" ${(a.reasoning_effort || '') === '' ? 'selected' : ''}>Codex default</option>
+                <option value="none" ${a.reasoning_effort === 'none' ? 'selected' : ''}>None</option>
+                <option value="low" ${a.reasoning_effort === 'low' ? 'selected' : ''}>Low</option>
+                <option value="medium" ${a.reasoning_effort === 'medium' ? 'selected' : ''}>Medium</option>
+                <option value="high" ${a.reasoning_effort === 'high' ? 'selected' : ''}>High</option>
+                <option value="xhigh" ${a.reasoning_effort === 'xhigh' ? 'selected' : ''}>Extra high</option>
+                <option value="max" ${a.reasoning_effort === 'max' ? 'selected' : ''}>Maximum</option>
+              </select>
+              <div class="trigger-help">Codex only</div>
+            </div>
           </div>
           <div class="form-row">
             <div class="form-group">
@@ -320,6 +333,7 @@
           cwd: fd.get('cwd'),
           provider: fd.get('provider'),
           model: fd.get('model'),
+          reasoning_effort: fd.get('reasoning_effort'),
           skip_permissions: fd.has('skip_permissions'),
           enabled: fd.has('enabled'),
         },
@@ -582,6 +596,19 @@
                 <label>Model</label>
                 <input name="model" value="claude-sonnet-4-6" placeholder="leave blank for Codex default">
               </div>
+              <div class="form-group">
+                <label>Reasoning Effort</label>
+                <select name="reasoning_effort">
+                  <option value="" selected>Codex default</option>
+                  <option value="none">None</option>
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                  <option value="xhigh">Extra high</option>
+                  <option value="max">Maximum</option>
+                </select>
+                <div class="trigger-help">Codex only</div>
+              </div>
             </div>
             <div class="form-row">
               <div class="form-group">
@@ -617,6 +644,7 @@
           cwd: fd.get('cwd'),
           provider: fd.get('provider'),
           model: fd.get('model'),
+          reasoning_effort: fd.get('reasoning_effort'),
           skip_permissions: fd.has('skip_permissions'),
           enabled: fd.has('enabled'),
         },

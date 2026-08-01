@@ -259,6 +259,10 @@ function codexArgs(agent: Agent): string[] {
     args.push("--model", agent.model.trim());
   }
 
+  if (agent.reasoning_effort) {
+    args.push("--config", `model_reasoning_effort=${JSON.stringify(agent.reasoning_effort)}`);
+  }
+
   args.push("-");
   return args;
 }

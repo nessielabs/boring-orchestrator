@@ -33,6 +33,7 @@ PORT=3000 npm start
 - Webhook agents can be triggered with `POST /webhook` or `POST /webhook/:path`.
 - Each run executes `claude -p --output-format stream-json` and stores the streamed transcript.
 - Agents can run on Claude or Codex. Claude uses `claude -p`; Codex uses `codex exec --json --skip-git-repo-check`.
+- Codex agents can set a per-agent reasoning effort from `none` through `max`; `xhigh` is labeled "Extra high" in the dashboard.
 - The "Dangerously skip permissions" checkbox maps to `--dangerously-skip-permissions` for Claude and `--dangerously-bypass-approvals-and-sandbox` for Codex.
 - Optional pre-scripts run before the agent. Their stdout is available to the prompt as `{{pre_script_output}}`; empty output or a non-zero exit skips the run.
 

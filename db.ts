@@ -18,6 +18,7 @@ db.exec(`
     prompt TEXT NOT NULL,
     cwd TEXT NOT NULL DEFAULT '',
     model TEXT NOT NULL DEFAULT 'claude-sonnet-4-6',
+    reasoning_effort TEXT NOT NULL DEFAULT '' CHECK(reasoning_effort IN ('', 'none', 'low', 'medium', 'high', 'xhigh', 'max')),
     pre_script TEXT NOT NULL DEFAULT '',
     skip_permissions INTEGER NOT NULL DEFAULT 0,
     enabled INTEGER NOT NULL DEFAULT 1,
@@ -46,6 +47,9 @@ db.exec(`
 // migration: add pre_script column if missing
 try { db.exec("ALTER TABLE agents ADD COLUMN pre_script TEXT NOT NULL DEFAULT ''"); } catch {}
 try { db.exec("ALTER TABLE agents ADD COLUMN provider TEXT NOT NULL DEFAULT 'claude'"); } catch {}
+try { db.exec("ALTER TABLE agents ADD COLUMN reasoning_effort TEXT NOT NULL DEFAULT '' CHECK(reasoning_effort IN ('', 'none', 'low', 'medium', 'high', 'xhigh', 'max'))"); } catch {}
+
+export type ReasoningEffort = "" | "none" | "low" | "medium" | "high" | "xhigh" | "max";
 
 export interface Agent {
   id: string;
@@ -56,6 +60,7 @@ export interface Agent {
   prompt: string;
   cwd: string;
   model: string;
+  reasoning_effort: ReasoningEffort;
   pre_script: string;
   skip_permissions: number;
   enabled: number;
@@ -84,8 +89,8 @@ function genId(): string {
 function seedInitialAgents(): void {
   const now = new Date().toISOString();
   db.prepare(`
-    INSERT OR IGNORE INTO agents (id, name, trigger_type, trigger_config, provider, prompt, cwd, model, pre_script, skip_permissions, enabled, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT OR IGNORE INTO agents (id, name, trigger_type, trigger_config, provider, prompt, cwd, model, reasoning_effort, pre_script, skip_permissions, enabled, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     "dummy-agent",
     "dummy agent",
@@ -95,6 +100,7 @@ function seedInitialAgents(): void {
     "Say exactly: hello world, it's {{pre_script_output}}.",
     "",
     "claude-haiku-4-5",
+    "",
     "date '+%Y-%m-%d %H:%M:%S %Z'",
     0,
     1,
@@ -119,9 +125,9 @@ export function createAgent(agent: Omit<Agent, "id" | "created_at" | "updated_at
   const id = genId();
   const now = new Date().toISOString();
   db.prepare(`
-    INSERT INTO agents (id, name, trigger_type, trigger_config, provider, prompt, cwd, model, pre_script, skip_permissions, enabled, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(id, agent.name, agent.trigger_type, agent.trigger_config, agent.provider, agent.prompt, agent.cwd, agent.model, agent.pre_script, agent.skip_permissions, agent.enabled, now, now);
+    INSERT INTO agents (id, name, trigger_type, trigger_config, provider, prompt, cwd, model, reasoning_effort, pre_script, skip_permissions, enabled, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(id, agent.name, agent.trigger_type, agent.trigger_config, agent.provider, agent.prompt, agent.cwd, agent.model, agent.reasoning_effort, agent.pre_script, agent.skip_permissions, agent.enabled, now, now);
   return getAgent(id)!;
 }
 

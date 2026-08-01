@@ -1,9 +1,15 @@
 import { Router } from "express";
-import { listAgents, getAgent, createAgent, updateAgent, deleteAgent, listRuns, getRun } from "./db.js";
+import { listAgents, getAgent, createAgent, updateAgent, deleteAgent, listRuns, getRun, type ReasoningEffort } from "./db.js";
 import { executeAgent } from "./executor.js";
 import { syncScheduler } from "./scheduler.js";
 
 const router = Router();
+const REASONING_EFFORTS = new Set<ReasoningEffort>(["", "none", "low", "medium", "high", "xhigh", "max"]);
+
+function normalizeReasoningEffort(value: unknown): ReasoningEffort | null {
+  const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
+  return REASONING_EFFORTS.has(normalized as ReasoningEffort) ? normalized as ReasoningEffort : null;
+}
 
 // --- Agents ---
 
@@ -18,11 +24,15 @@ router.get("/api/agents/:id", (req, res) => {
 });
 
 router.post("/api/agents", (req, res) => {
-  const { name, trigger_type, trigger_config, provider, prompt, cwd, model, pre_script, skip_permissions, enabled } = req.body;
+  const { name, trigger_type, trigger_config, provider, prompt, cwd, model, reasoning_effort, pre_script, skip_permissions, enabled } = req.body;
   if (!name || !trigger_type || !prompt) {
     return res.status(400).json({ error: "name, trigger_type, and prompt are required" });
   }
   const normalizedProvider = provider === "codex" ? "codex" : "claude";
+  const normalizedReasoningEffort = normalizeReasoningEffort(reasoning_effort);
+  if (normalizedReasoningEffort === null) {
+    return res.status(400).json({ error: "Invalid reasoning_effort" });
+  }
   const agent = createAgent({
     name,
     trigger_type,
@@ -31,6 +41,7 @@ router.post("/api/agents", (req, res) => {
     prompt,
     cwd: cwd || "",
     model: model || (normalizedProvider === "claude" ? "claude-sonnet-4-6" : ""),
+    reasoning_effort: normalizedReasoningEffort,
     pre_script: pre_script || "",
     skip_permissions: skip_permissions ? 1 : 0,
     enabled: enabled !== false ? 1 : 0,
@@ -42,6 +53,13 @@ router.post("/api/agents", (req, res) => {
 router.put("/api/agents/:id", (req, res) => {
   const updates = { ...req.body };
   if ("provider" in updates) updates.provider = updates.provider === "codex" ? "codex" : "claude";
+  if ("reasoning_effort" in updates) {
+    const normalizedReasoningEffort = normalizeReasoningEffort(updates.reasoning_effort);
+    if (normalizedReasoningEffort === null) {
+      return res.status(400).json({ error: "Invalid reasoning_effort" });
+    }
+    updates.reasoning_effort = normalizedReasoningEffort;
+  }
   if ("skip_permissions" in updates) updates.skip_permissions = updates.skip_permissions ? 1 : 0;
   if ("enabled" in updates) updates.enabled = updates.enabled ? 1 : 0;
   const agent = updateAgent(req.params.id, updates);
