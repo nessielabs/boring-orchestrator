@@ -4,6 +4,7 @@ import { statSync } from "fs";
 import { createRun, appendTranscript, finishRun, hasRunningRun, type Agent } from "./db.js";
 import { computeOpenAICost } from "./pricing.js";
 import { parsePreScriptOutput, type PreScriptControl } from "./pre-script-control.js";
+import { buildProviderInvocation } from "./provider-invocation.js";
 
 interface PreScriptResult {
   ok: boolean;
@@ -127,8 +128,7 @@ function startPreparedRun(agent: Agent, prepared: PreparedRun, triggerPayload?: 
   }
 
   const provider = agent.provider || "claude";
-  const args = provider === "codex" ? codexArgs(agent) : claudeArgs(agent, prompt);
-  const command = provider === "codex" ? "codex" : "claude";
+  const invocation = buildProviderInvocation({ ...agent, provider }, prompt);
 
   const spawnOpts: { cwd?: string; env: NodeJS.ProcessEnv } = {
     env: {
@@ -142,10 +142,8 @@ function startPreparedRun(agent: Agent, prepared: PreparedRun, triggerPayload?: 
     spawnOpts.cwd = runCwd;
   }
 
-  const child = spawn(command, args, { ...spawnOpts, stdio: provider === "codex" ? ["pipe", "pipe", "pipe"] : ["ignore", "pipe", "pipe"] });
-  if (provider === "codex") {
-    child.stdin!.end(prompt);
-  }
+  const child = spawn(invocation.command, invocation.args, { ...spawnOpts, stdio: ["pipe", "pipe", "pipe"] });
+  child.stdin!.end(invocation.stdin);
 
   let buffer = "";
   let resultText = "";
@@ -272,43 +270,4 @@ function startPreparedRun(agent: Agent, prepared: PreparedRun, triggerPayload?: 
       }
     }
   }
-}
-
-function claudeArgs(agent: Agent, prompt: string): string[] {
-  const args = [
-    "-p", prompt,
-    "--output-format", "stream-json",
-    "--verbose",
-    "--model", agent.model || "claude-sonnet-4-6",
-    "--max-turns", "100",
-  ];
-
-  if (agent.skip_permissions) {
-    args.push("--dangerously-skip-permissions");
-  }
-
-  return args;
-}
-
-function codexArgs(agent: Agent): string[] {
-  const args = [
-    "exec",
-    "--json",
-    "--skip-git-repo-check",
-  ];
-
-  if (agent.skip_permissions) {
-    args.push("--dangerously-bypass-approvals-and-sandbox");
-  }
-
-  if (agent.model.trim()) {
-    args.push("--model", agent.model.trim());
-  }
-
-  if (agent.reasoning_effort) {
-    args.push("--config", `model_reasoning_effort=${JSON.stringify(agent.reasoning_effort)}`);
-  }
-
-  args.push("-");
-  return args;
 }
