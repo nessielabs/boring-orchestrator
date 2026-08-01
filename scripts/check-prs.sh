@@ -4,6 +4,9 @@
 #
 set -uo pipefail
 
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd) || exit 1
+source "$SCRIPT_DIR/review-control.sh" || exit 1
+
 AGENT_USER="lil-nessie"
 MENTION="@lil-nessie"
 REPO_CACHE_ROOT="${PR_REVIEW_REPO_CACHE_ROOT:-$HOME/nessie-review-repos}"
@@ -192,35 +195,33 @@ for selected in "${review_requests[@]}"; do
   inline_review_comments=$(gh api "repos/$repo/pulls/$number/comments" --paginate) || exit 1
   review_events=$(gh api "repos/$repo/pulls/$number/reviews" --paginate) || exit 1
 
-  review_context=$(jq -cn \
-    --arg repo "$repo" \
-    --arg action "review-requested" \
-    --arg latest_mention "$(echo "$selected" | jq -r '.latest_mention')" \
-    --arg latest_agent_response "$(echo "$selected" | jq -r '.latest_agent_response')" \
-    --arg workspace "$worktree_path" \
-    --arg base_sha "$base_sha" \
-    --arg head_sha "$head_sha" \
-    --argjson pr_context "$pr_context" \
-    --argjson issue_comments "$issue_comments" \
-    --argjson inline_review_comments "$inline_review_comments" \
-    --argjson review_events "$review_events" \
-    '{repo:$repo,number:$pr_context.number,title:$pr_context.title,action:$action,latest_mention:$latest_mention,latest_agent_response:$latest_agent_response,workspace:$workspace,base_sha:$base_sha,head_sha:$head_sha,pr_context:$pr_context,issue_comments:$issue_comments,inline_review_comments:$inline_review_comments,review_events:$review_events}') || exit 1
+  review_context=$(build_review_context \
+    "$repo" \
+    "$selected" \
+    "$worktree_path" \
+    "$base_sha" \
+    "$head_sha" \
+    "$pr_context" \
+    "$issue_comments" \
+    "$inline_review_comments" \
+    "$review_events") || exit 1
 
   printf -v cleanup_script 'git --git-dir=%q worktree remove --force %q && git --git-dir=%q worktree prune --expire now' \
     "$cache_repo" "$worktree_path" "$cache_repo"
-  run_specs+=("$(jq -cn \
-    --arg prompt_output "$review_context" \
-    --arg cwd "$worktree_path" \
-    --arg cleanup_script "$cleanup_script" \
-    '{prompt_output:$prompt_output,cwd:$cwd,cleanup_script:$cleanup_script}')")
+  run_spec=$(build_review_run_spec "$review_context" "$worktree_path" "$cleanup_script") || exit 1
+  run_specs+=("$run_spec")
 done
 
 if [ "${#run_specs[@]}" -eq 0 ]; then
   exit 0
 fi
 
-runs=$(printf '%s\n' "${run_specs[@]}" | jq -cs '.') || exit 1
-control=$(jq -cn --argjson runs "$runs" '{runs:$runs}') || exit 1
+if [ "${#run_specs[@]}" -ne "${#prepared_worktrees[@]}" ]; then
+  echo "PR reviewer prepared workspaces without matching run specs" >&2
+  exit 1
+fi
+
+control=$(printf '%s\n' "${run_specs[@]}" | build_review_fanout_control) || exit 1
 printf '%s%s\n' '::boring-orchestrator::' "$control" || exit 1
 
 # Boring Orchestrator owns every worktree after it receives the fan-out line.
