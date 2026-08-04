@@ -20,6 +20,7 @@ db.exec(`
     model TEXT NOT NULL DEFAULT 'claude-sonnet-4-6',
     reasoning_effort TEXT NOT NULL DEFAULT '' CHECK(reasoning_effort IN ('', 'none', 'low', 'medium', 'high', 'xhigh', 'max')),
     pre_script TEXT NOT NULL DEFAULT '',
+    lane_key TEXT NOT NULL DEFAULT '',
     skip_permissions INTEGER NOT NULL DEFAULT 0,
     enabled INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -36,6 +37,7 @@ db.exec(`
     total_cost_usd REAL,
     num_turns INTEGER,
     trigger_payload TEXT,
+    lane TEXT NOT NULL DEFAULT '',
     transcript TEXT NOT NULL DEFAULT '[]',
     result_text TEXT
   );
@@ -48,6 +50,8 @@ db.exec(`
 try { db.exec("ALTER TABLE agents ADD COLUMN pre_script TEXT NOT NULL DEFAULT ''"); } catch {}
 try { db.exec("ALTER TABLE agents ADD COLUMN provider TEXT NOT NULL DEFAULT 'claude'"); } catch {}
 try { db.exec("ALTER TABLE agents ADD COLUMN reasoning_effort TEXT NOT NULL DEFAULT '' CHECK(reasoning_effort IN ('', 'none', 'low', 'medium', 'high', 'xhigh', 'max'))"); } catch {}
+try { db.exec("ALTER TABLE agents ADD COLUMN lane_key TEXT NOT NULL DEFAULT ''"); } catch {}
+try { db.exec("ALTER TABLE runs ADD COLUMN lane TEXT NOT NULL DEFAULT ''"); } catch {}
 
 export type ReasoningEffort = "" | "none" | "low" | "medium" | "high" | "xhigh" | "max";
 
@@ -62,6 +66,7 @@ export interface Agent {
   model: string;
   reasoning_effort: ReasoningEffort;
   pre_script: string;
+  lane_key: string;
   skip_permissions: number;
   enabled: number;
   created_at: string;
@@ -78,6 +83,7 @@ export interface Run {
   total_cost_usd: number | null;
   num_turns: number | null;
   trigger_payload: string | null;
+  lane: string;
   transcript: string;
   result_text: string | null;
 }
@@ -89,8 +95,8 @@ function genId(): string {
 function seedInitialAgents(): void {
   const now = new Date().toISOString();
   db.prepare(`
-    INSERT OR IGNORE INTO agents (id, name, trigger_type, trigger_config, provider, prompt, cwd, model, reasoning_effort, pre_script, skip_permissions, enabled, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT OR IGNORE INTO agents (id, name, trigger_type, trigger_config, provider, prompt, cwd, model, reasoning_effort, pre_script, lane_key, skip_permissions, enabled, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     "dummy-agent",
     "dummy agent",
@@ -102,6 +108,7 @@ function seedInitialAgents(): void {
     "claude-haiku-4-5",
     "",
     "date '+%Y-%m-%d %H:%M:%S %Z'",
+    "",
     0,
     1,
     now,
@@ -125,9 +132,9 @@ export function createAgent(agent: Omit<Agent, "id" | "created_at" | "updated_at
   const id = genId();
   const now = new Date().toISOString();
   db.prepare(`
-    INSERT INTO agents (id, name, trigger_type, trigger_config, provider, prompt, cwd, model, reasoning_effort, pre_script, skip_permissions, enabled, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(id, agent.name, agent.trigger_type, agent.trigger_config, agent.provider, agent.prompt, agent.cwd, agent.model, agent.reasoning_effort, agent.pre_script, agent.skip_permissions, agent.enabled, now, now);
+    INSERT INTO agents (id, name, trigger_type, trigger_config, provider, prompt, cwd, model, reasoning_effort, pre_script, lane_key, skip_permissions, enabled, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(id, agent.name, agent.trigger_type, agent.trigger_config, agent.provider, agent.prompt, agent.cwd, agent.model, agent.reasoning_effort, agent.pre_script, agent.lane_key, agent.skip_permissions, agent.enabled, now, now);
   return getAgent(id)!;
 }
 
@@ -160,24 +167,28 @@ export function deleteAgent(id: string): boolean {
 // --- Runs ---
 
 export function listRuns(agentId: string, limit = 50): Omit<Run, "transcript">[] {
-  return db.prepare("SELECT id, agent_id, status, started_at, finished_at, duration_ms, total_cost_usd, num_turns, trigger_payload, result_text FROM runs WHERE agent_id = ? ORDER BY started_at DESC LIMIT ?").all(agentId, limit) as Omit<Run, "transcript">[];
+  return db.prepare("SELECT id, agent_id, status, started_at, finished_at, duration_ms, total_cost_usd, num_turns, trigger_payload, lane, result_text FROM runs WHERE agent_id = ? ORDER BY started_at DESC LIMIT ?").all(agentId, limit) as Omit<Run, "transcript">[];
 }
 
 export function getRun(id: string): Run | undefined {
   return db.prepare("SELECT * FROM runs WHERE id = ?").get(id) as Run | undefined;
 }
 
-export function hasRunningRun(agentId: string): boolean {
-  const row = db.prepare("SELECT 1 FROM runs WHERE agent_id = ? AND status = 'running' LIMIT 1").get(agentId);
+// Without a lane, any running run for the agent blocks. With a lane, only a
+// running run in the same lane blocks — other lanes proceed in parallel.
+export function hasRunningRun(agentId: string, lane?: string): boolean {
+  const row = lane === undefined
+    ? db.prepare("SELECT 1 FROM runs WHERE agent_id = ? AND status = 'running' LIMIT 1").get(agentId)
+    : db.prepare("SELECT 1 FROM runs WHERE agent_id = ? AND status = 'running' AND lane = ? LIMIT 1").get(agentId, lane);
   return !!row;
 }
 
-export function createRun(agentId: string, triggerPayload?: string): Run {
+export function createRun(agentId: string, triggerPayload?: string, lane?: string): Run {
   const id = genId();
   db.prepare(`
-    INSERT INTO runs (id, agent_id, trigger_payload)
-    VALUES (?, ?, ?)
-  `).run(id, agentId, triggerPayload ?? null);
+    INSERT INTO runs (id, agent_id, trigger_payload, lane)
+    VALUES (?, ?, ?, ?)
+  `).run(id, agentId, triggerPayload ?? null, lane ?? "");
   return getRun(id)!;
 }
 
