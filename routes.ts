@@ -24,7 +24,7 @@ router.get("/api/agents/:id", (req, res) => {
 });
 
 router.post("/api/agents", (req, res) => {
-  const { name, trigger_type, trigger_config, provider, prompt, cwd, model, reasoning_effort, pre_script, skip_permissions, enabled } = req.body;
+  const { name, trigger_type, trigger_config, provider, prompt, cwd, model, reasoning_effort, pre_script, lane_key, skip_permissions, enabled } = req.body;
   if (!name || !trigger_type || !prompt) {
     return res.status(400).json({ error: "name, trigger_type, and prompt are required" });
   }
@@ -43,6 +43,7 @@ router.post("/api/agents", (req, res) => {
     model: model || (normalizedProvider === "claude" ? "claude-sonnet-4-6" : ""),
     reasoning_effort: normalizedReasoningEffort,
     pre_script: pre_script || "",
+    lane_key: lane_key || "",
     skip_permissions: skip_permissions ? 1 : 0,
     enabled: enabled !== false ? 1 : 0,
   });
@@ -80,9 +81,9 @@ router.delete("/api/agents/:id", (req, res) => {
 router.post("/api/agents/:id/trigger", (req, res) => {
   const agent = getAgent(req.params.id);
   if (!agent) return res.status(404).json({ error: "Agent not found" });
-  const runId = executeAgent(agent, JSON.stringify({ trigger: "manual" }));
-  if (!runId) return res.json({ skipped: true, reason: "pre-script returned empty or exited non-zero" });
-  res.json({ run_id: runId });
+  const runIds = executeAgent(agent, JSON.stringify({ trigger: "manual" }));
+  if (runIds.length === 0) return res.json({ skipped: true, reason: "pre-script returned empty, exited non-zero, or all lanes are busy" });
+  res.json({ run_id: runIds[0], run_ids: runIds });
 });
 
 // --- Runs ---

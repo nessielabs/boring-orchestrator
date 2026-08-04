@@ -27,25 +27,64 @@ function runPreScript(agent: Agent): { ok: boolean; output: string } {
   }
 }
 
-export function executeAgent(agent: Agent, triggerPayload?: string): string | null {
-  if (hasRunningRun(agent.id)) {
-    console.log(`[executor] Agent "${agent.name}" already has a running run, skipping`);
-    return null;
+// Group pre-script JSON lines by the value of `laneKey` in each line.
+// Non-JSON lines and lines missing the key fall into the "" lane.
+function partitionByLane(output: string, laneKey: string): Map<string, string[]> {
+  const lanes = new Map<string, string[]>();
+  for (const line of output.split("\n")) {
+    if (!line.trim()) continue;
+    let lane = "";
+    try {
+      const value = JSON.parse(line)?.[laneKey];
+      if (value !== undefined && value !== null) lane = String(value);
+    } catch {}
+    if (!lanes.has(lane)) lanes.set(lane, []);
+    lanes.get(lane)!.push(line);
+  }
+  return lanes;
+}
+
+// Returns the ids of runs started this tick (empty when everything was
+// skipped). Laneless agents start at most one run; agents with a lane_key
+// start one run per lane, serialized within a lane, parallel across lanes.
+export function executeAgent(agent: Agent, triggerPayload?: string): string[] {
+  const laneKey = agent.lane_key?.trim() || "";
+
+  // Lanes only make sense when a pre-script produces partitionable output.
+  if (!laneKey || !agent.pre_script.trim()) {
+    if (hasRunningRun(agent.id)) {
+      console.log(`[executor] Agent "${agent.name}" already has a running run, skipping`);
+      return [];
+    }
+    const pre = runPreScript(agent);
+    if (!pre.ok) return [];
+    const prompt = pre.output
+      ? agent.prompt.replace(/\{\{pre_script_output\}\}/g, pre.output)
+      : agent.prompt;
+    return [startRun(agent, prompt, "", triggerPayload, pre.output)];
   }
 
-  // Run pre-script first
   const pre = runPreScript(agent);
-  if (!pre.ok) return null;
+  if (!pre.ok) return [];
 
-  // Inject pre-script output into prompt via {{pre_script_output}}
-  const prompt = pre.output
-    ? agent.prompt.replace(/\{\{pre_script_output\}\}/g, pre.output)
-    : agent.prompt;
+  const runIds: string[] = [];
+  for (const [lane, lines] of partitionByLane(pre.output, laneKey)) {
+    if (hasRunningRun(agent.id, lane)) {
+      console.log(`[executor] Agent "${agent.name}" lane "${lane}" already has a running run, skipping lane`);
+      continue;
+    }
+    const laneOutput = lines.join("\n");
+    const prompt = agent.prompt.replace(/\{\{pre_script_output\}\}/g, laneOutput);
+    runIds.push(startRun(agent, prompt, lane, triggerPayload, laneOutput));
+  }
+  return runIds;
+}
 
-  const run = createRun(agent.id, triggerPayload);
+function startRun(agent: Agent, prompt: string, lane: string, triggerPayload: string | undefined, preOutput: string): string {
+  const run = createRun(agent.id, triggerPayload, lane);
 
-  if (pre.output) {
-    appendTranscript(run.id, JSON.stringify({ type: "pre_script", text: pre.output }));
+  if (preOutput) {
+    appendTranscript(run.id, JSON.stringify({ type: "pre_script", text: preOutput }));
   }
 
   const provider = agent.provider || "claude";
@@ -128,7 +167,7 @@ export function executeAgent(agent: Agent, triggerPayload?: string): string | nu
     console.error(`[executor] Agent "${agent.name}" run ${run.id} spawn error:`, err.message);
   });
 
-  console.log(`[executor] Agent "${agent.name}" started run ${run.id}`);
+  console.log(`[executor] Agent "${agent.name}" started run ${run.id}${lane ? ` (lane: ${lane})` : ""}`);
   return run.id;
 
   function captureResult(parsed: any): void {

@@ -28,11 +28,11 @@ export function handleWebhook(req: Request, res: Response): void {
     const prompt = renderPrompt(agent.prompt, req.body);
     const agentWithPrompt = { ...agent, prompt };
 
-    const runId = executeAgent(agentWithPrompt, payload);
-    if (!runId) continue;
+    const runIds = executeAgent(agentWithPrompt, payload);
+    if (runIds.length === 0) continue;
 
-    triggered.push(runId);
-    console.log(`[webhook] Triggered agent "${agent.name}" -> run ${runId}`);
+    triggered.push(...runIds);
+    console.log(`[webhook] Triggered agent "${agent.name}" -> run(s) ${runIds.join(", ")}`);
   }
 
   res.status(200).json({ triggered, count: triggered.length });
