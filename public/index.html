@@ -256,6 +256,11 @@
             <textarea name="pre_script" rows="4" placeholder="Bash script that runs before the agent. Its stdout is available as {{pre_script_output}} in the prompt. Empty output or non-zero exit skips the run.">${esc(a.pre_script)}</textarea>
           </div>
           <div class="form-group">
+            <label>Lane Key</label>
+            <input name="lane_key" value="${esc(a.lane_key || '')}" placeholder="(optional) JSON field in pre-script output lines, e.g. author">
+            <div class="trigger-help">When set, pre-script JSON lines are grouped by this field and each group runs as its own concurrent agent. Runs are serialized within a lane, parallel across lanes.</div>
+          </div>
+          <div class="form-group">
             <label>Prompt</label>
             <textarea name="prompt" rows="8">${esc(a.prompt)}</textarea>
           </div>
@@ -329,6 +334,7 @@
           trigger_type: fd.get('trigger_type'),
           trigger_config: fd.get('trigger_config'),
           pre_script: fd.get('pre_script'),
+          lane_key: fd.get('lane_key'),
           prompt: fd.get('prompt'),
           cwd: fd.get('cwd'),
           provider: fd.get('provider'),
@@ -373,7 +379,7 @@
           ${runs.map(r => `
             <div class="run-item" onclick="showRun('${r.id}')">
               <span class="status-badge ${r.status}">${r.status}</span>
-              <span>${new Date(r.started_at + 'Z').toLocaleString()}</span>
+              <span>${new Date(r.started_at + 'Z').toLocaleString()}${r.lane ? ' &middot; ' + esc(r.lane) : ''}</span>
               <span>${r.num_turns ?? '-'} turns</span>
               <span>${r.total_cost_usd != null ? '$' + r.total_cost_usd.toFixed(4) : '-'}</span>
               <span>${r.duration_ms != null ? (r.duration_ms / 1000).toFixed(1) + 's' : 'running...'}</span>
@@ -399,7 +405,7 @@
         <div class="main-header">
           <div>
             <a class="back-link" onclick="switchTab('runs')">&larr; ${esc(agent?.name || 'Back')}</a>
-            <h2 style="margin-top:4px">Run ${run.id.slice(0, 8)}</h2>
+            <h2 style="margin-top:4px">Run ${run.id.slice(0, 8)}${run.lane ? ' &middot; ' + esc(run.lane) : ''}</h2>
             <div class="run-meta">
               <span class="status-badge ${run.status}">${run.status}</span>
               <span>${new Date(run.started_at + 'Z').toLocaleString()}</span>
@@ -575,6 +581,11 @@
               <textarea name="pre_script" rows="4" placeholder="Bash script runs before agent. stdout -> {{pre_script_output}}. Empty/non-zero skips run."></textarea>
             </div>
             <div class="form-group">
+              <label>Lane Key</label>
+              <input name="lane_key" placeholder="(optional) JSON field in pre-script output lines, e.g. author">
+              <div class="trigger-help">When set, pre-script JSON lines are grouped by this field and each group runs as its own concurrent agent. Runs are serialized within a lane, parallel across lanes.</div>
+            </div>
+            <div class="form-group">
               <label>Prompt</label>
               <textarea name="prompt" rows="8" required placeholder="Instructions for the agent..."></textarea>
             </div>
@@ -640,6 +651,7 @@
           trigger_type: fd.get('trigger_type'),
           trigger_config: fd.get('trigger_config'),
           pre_script: fd.get('pre_script'),
+          lane_key: fd.get('lane_key'),
           prompt: fd.get('prompt'),
           cwd: fd.get('cwd'),
           provider: fd.get('provider'),
