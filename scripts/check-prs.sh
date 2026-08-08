@@ -14,6 +14,7 @@ REPOS=(
   "nessielabs/ubs"
   "nessielabs/nessie-notes-landing"
   "nessielabs/nessie-codebase"
+  "nessielabs/nessie-hermes"
   "nessielabs/nessie-notes-go"
   "nessielabs/nessie-skill"
 )
