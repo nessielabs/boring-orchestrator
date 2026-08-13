@@ -53,13 +53,17 @@ Generated runtime files are ignored by git:
 
 The repository includes a preview-only Nessie lifecycle agent. Its pre-script
 runs the deterministic `trial-needs-activation` and `trial-near-expiry`
-campaign previews before invoking Claude. Empty audiences produce no output,
-so the orchestrator skips the model call. The agent never sends email.
+campaign previews in script-only mode. Empty audiences produce no output, and
+non-empty previews are recorded without an LLM call. The agent never sends
+email.
 
 On Matrix, install the campaign dependencies in a repository-local virtual
 environment and expose `RESEND_API_KEY` to the orchestrator process for the
-campaigns repository's Resend deduplication check. Then create or update the
-agent:
+campaigns repository's Resend deduplication check. The preview also requires
+Anna's Gmail OAuth files at `~/.config/nessie-campaigns/gmail-oauth.json` and
+`~/.config/nessie-campaigns/gmail-token.json`; from the campaigns checkout,
+run `.venv/bin/python scripts/gmail_reauth.py` to authorize the account. Then
+create or update the agent:
 
 ```bash
 cd ~/nessie-campaigns
@@ -73,6 +77,9 @@ The agent runs every six hours in script-only mode. An empty preview creates no
 run; a non-empty preview is recorded verbatim with zero LLM calls. Operators
 must still inspect the campaign preview and explicitly run the campaign send
 command separately.
+
+The committed upsert payload is the source of truth. Running it again replaces
+dashboard edits to this agent's schedule, pre-script, or other settings.
 
 ## License
 
