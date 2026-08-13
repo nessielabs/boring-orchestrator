@@ -13,7 +13,6 @@ export PATH="$HOME/.local/bin:$PATH"
 
 CAMPAIGNS_DIR="${NESSIE_CAMPAIGNS_DIR:-$HOME/nessie-campaigns}"
 PYTHON_BIN="${NESSIE_CAMPAIGNS_PYTHON:-$CAMPAIGNS_DIR/.venv/bin/python}"
-GMAIL_TOKEN="$HOME/.config/nessie-campaigns/gmail-token.json"
 CAMPAIGN_IDS=(
   "trial-needs-activation"
   "trial-near-expiry"
@@ -25,12 +24,6 @@ git pull --ff-only --quiet
 if [ ! -x "$PYTHON_BIN" ]; then
   echo "Campaign Python environment not found at $PYTHON_BIN" >&2
   echo "Create it with: python3 -m venv .venv && .venv/bin/pip install -r requirements.txt" >&2
-  exit 1
-fi
-
-if [ ! -r "$GMAIL_TOKEN" ]; then
-  echo "Gmail token not found at $GMAIL_TOKEN" >&2
-  echo "Provision Anna's Gmail token or run: $PYTHON_BIN scripts/gmail_reauth.py" >&2
   exit 1
 fi
 

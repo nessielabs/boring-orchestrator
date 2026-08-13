@@ -59,11 +59,8 @@ email.
 
 On Matrix, install the campaign dependencies in a repository-local virtual
 environment and expose `RESEND_API_KEY` to the orchestrator process for the
-campaigns repository's Resend deduplication check. The preview also requires
-Anna's Gmail OAuth files at `~/.config/nessie-campaigns/gmail-oauth.json` and
-`~/.config/nessie-campaigns/gmail-token.json`; from the campaigns checkout,
-run `.venv/bin/python scripts/gmail_reauth.py` to authorize the account. Then
-create or update the agent:
+campaigns repository's Resend deduplication check. Then create or update the
+agent:
 
 ```bash
 cd ~/nessie-campaigns
