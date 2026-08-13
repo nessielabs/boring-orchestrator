@@ -48,6 +48,30 @@ Generated runtime files are ignored by git:
 - `*.db-wal`
 - `*.log`
 
+## Nessie Trial Lifecycle Preview
+
+The repository includes a preview-only Nessie lifecycle agent. Its pre-script
+runs the deterministic `trial-needs-activation` and `trial-near-expiry`
+campaign previews before invoking Claude. Empty audiences produce no output,
+so the orchestrator skips the model call. The agent never sends email.
+
+On Matrix, install the campaign dependencies in a repository-local virtual
+environment and expose `RESEND_API_KEY` to the orchestrator process for the
+campaigns repository's Resend deduplication check. Then create or update the
+agent:
+
+```bash
+cd ~/nessie-campaigns
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+cd ~/boring-orchestrator
+python3 scripts/upsert-trial-lifecycle-agent.py
+```
+
+The agent runs every six hours with Haiku and only summarizes a non-empty
+preview. Operators must still inspect the campaign preview and explicitly run
+the campaign send command separately.
+
 ## License
 
 MIT
