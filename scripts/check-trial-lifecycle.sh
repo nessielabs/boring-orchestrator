@@ -3,7 +3,8 @@
 #
 # The script runs deterministic campaign previews first. It prints one compact
 # JSON object only when at least one recipient is due, so Boring Orchestrator
-# skips Claude entirely on empty ticks. This script never sends email.
+# skips recording an empty run. The agent is script-only and never launches an
+# LLM. This script never sends email.
 
 set -euo pipefail
 

@@ -256,6 +256,12 @@
             <textarea name="pre_script" rows="4" placeholder="Bash script that runs before the agent. Its stdout is available as {{pre_script_output}} in the prompt. Empty output or non-zero exit skips the run.">${esc(a.pre_script)}</textarea>
           </div>
           <div class="form-group">
+            <div class="checkbox-row">
+              <input type="checkbox" name="script_only" id="script_only" ${a.script_only ? 'checked' : ''}>
+              <label for="script_only" style="margin:0">Script only (record output without an LLM call)</label>
+            </div>
+          </div>
+          <div class="form-group">
             <label>Lane Key</label>
             <input name="lane_key" value="${esc(a.lane_key || '')}" placeholder="(optional) JSON field in pre-script output lines, e.g. author">
             <div class="trigger-help">When set, pre-script JSON lines are grouped by this field and each group runs as its own concurrent agent. Runs are serialized within a lane, parallel across lanes.</div>
@@ -334,6 +340,7 @@
           trigger_type: fd.get('trigger_type'),
           trigger_config: fd.get('trigger_config'),
           pre_script: fd.get('pre_script'),
+          script_only: fd.has('script_only'),
           lane_key: fd.get('lane_key'),
           prompt: fd.get('prompt'),
           cwd: fd.get('cwd'),
@@ -581,6 +588,12 @@
               <textarea name="pre_script" rows="4" placeholder="Bash script runs before agent. stdout -> {{pre_script_output}}. Empty/non-zero skips run."></textarea>
             </div>
             <div class="form-group">
+              <div class="checkbox-row">
+                <input type="checkbox" name="script_only" id="new_script_only">
+                <label for="new_script_only" style="margin:0">Script only (record output without an LLM call)</label>
+              </div>
+            </div>
+            <div class="form-group">
               <label>Lane Key</label>
               <input name="lane_key" placeholder="(optional) JSON field in pre-script output lines, e.g. author">
               <div class="trigger-help">When set, pre-script JSON lines are grouped by this field and each group runs as its own concurrent agent. Runs are serialized within a lane, parallel across lanes.</div>
@@ -651,6 +664,7 @@
           trigger_type: fd.get('trigger_type'),
           trigger_config: fd.get('trigger_config'),
           pre_script: fd.get('pre_script'),
+          script_only: fd.has('script_only'),
           lane_key: fd.get('lane_key'),
           prompt: fd.get('prompt'),
           cwd: fd.get('cwd'),

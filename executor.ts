@@ -61,6 +61,9 @@ export function executeAgent(agent: Agent, triggerPayload?: string): string[] {
     const prompt = pre.output
       ? agent.prompt.replace(/\{\{pre_script_output\}\}/g, pre.output)
       : agent.prompt;
+    if (agent.script_only) {
+      return [recordScriptOnlyRun(agent, "", triggerPayload, pre.output)];
+    }
     return [startRun(agent, prompt, "", triggerPayload, pre.output)];
   }
 
@@ -74,10 +77,27 @@ export function executeAgent(agent: Agent, triggerPayload?: string): string[] {
       continue;
     }
     const laneOutput = lines.join("\n");
+    if (agent.script_only) {
+      runIds.push(recordScriptOnlyRun(agent, lane, triggerPayload, laneOutput));
+      continue;
+    }
     const prompt = agent.prompt.replace(/\{\{pre_script_output\}\}/g, laneOutput);
     runIds.push(startRun(agent, prompt, lane, triggerPayload, laneOutput));
   }
   return runIds;
+}
+
+function recordScriptOnlyRun(agent: Agent, lane: string, triggerPayload: string | undefined, preOutput: string): string {
+  const run = createRun(agent.id, triggerPayload, lane);
+  appendTranscript(run.id, JSON.stringify({ type: "pre_script", text: preOutput }));
+  finishRun(run.id, "success", {
+    duration_ms: 0,
+    total_cost_usd: 0,
+    num_turns: 0,
+    result_text: preOutput,
+  });
+  console.log(`[executor] Agent "${agent.name}" recorded script-only run ${run.id}${lane ? ` (lane: ${lane})` : ""}`);
+  return run.id;
 }
 
 function startRun(agent: Agent, prompt: string, lane: string, triggerPayload: string | undefined, preOutput: string): string {

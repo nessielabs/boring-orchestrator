@@ -36,6 +36,7 @@ PORT=3000 npm start
 - Codex agents can set a per-agent reasoning effort from `none` through `max`; `xhigh` is labeled "Extra high" in the dashboard.
 - The "Dangerously skip permissions" checkbox maps to `--dangerously-skip-permissions` for Claude and `--dangerously-bypass-approvals-and-sandbox` for Codex.
 - Optional pre-scripts run before the agent. Their stdout is available to the prompt as `{{pre_script_output}}`; empty output or a non-zero exit skips the run.
+- Script-only agents record non-empty pre-script output as a successful run and never launch Claude or Codex.
 
 ## Notes
 
@@ -68,9 +69,10 @@ cd ~/boring-orchestrator
 python3 scripts/upsert-trial-lifecycle-agent.py
 ```
 
-The agent runs every six hours with Haiku and only summarizes a non-empty
-preview. Operators must still inspect the campaign preview and explicitly run
-the campaign send command separately.
+The agent runs every six hours in script-only mode. An empty preview creates no
+run; a non-empty preview is recorded verbatim with zero LLM calls. Operators
+must still inspect the campaign preview and explicitly run the campaign send
+command separately.
 
 ## License
 
