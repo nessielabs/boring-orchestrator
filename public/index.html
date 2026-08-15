@@ -256,6 +256,10 @@
             <textarea name="pre_script" rows="4" placeholder="Bash script that runs before the agent. Its stdout is available as {{pre_script_output}} in the prompt. Empty output or non-zero exit skips the run.">${esc(a.pre_script)}</textarea>
           </div>
           <div class="form-group">
+            <label>Pre-script timeout (milliseconds)</label>
+            <input type="number" name="pre_script_timeout_ms" min="1" max="3600000" value="${Number(a.pre_script_timeout_ms) || 60000}" required>
+          </div>
+          <div class="form-group">
             <div class="checkbox-row">
               <input type="checkbox" name="script_only" id="script_only" ${a.script_only ? 'checked' : ''}>
               <label for="script_only" style="margin:0">Script only (record output without an LLM call)</label>
@@ -267,7 +271,7 @@
             <div class="trigger-help">When set, pre-script JSON lines are grouped by this field and each group runs as its own concurrent agent. Runs are serialized within a lane, parallel across lanes.</div>
           </div>
           <div class="form-group">
-            <label>Prompt</label>
+            <label>Prompt (required unless script-only)</label>
             <textarea name="prompt" rows="8">${esc(a.prompt)}</textarea>
           </div>
           <div class="form-row">
@@ -340,6 +344,7 @@
           trigger_type: fd.get('trigger_type'),
           trigger_config: fd.get('trigger_config'),
           pre_script: fd.get('pre_script'),
+          pre_script_timeout_ms: Number(fd.get('pre_script_timeout_ms')),
           script_only: fd.has('script_only'),
           lane_key: fd.get('lane_key'),
           prompt: fd.get('prompt'),
@@ -588,6 +593,10 @@
               <textarea name="pre_script" rows="4" placeholder="Bash script runs before agent. stdout -> {{pre_script_output}}. Empty/non-zero skips run."></textarea>
             </div>
             <div class="form-group">
+              <label>Pre-script timeout (milliseconds)</label>
+              <input type="number" name="pre_script_timeout_ms" min="1" max="3600000" value="60000" required>
+            </div>
+            <div class="form-group">
               <div class="checkbox-row">
                 <input type="checkbox" name="script_only" id="new_script_only">
                 <label for="new_script_only" style="margin:0">Script only (record output without an LLM call)</label>
@@ -599,8 +608,8 @@
               <div class="trigger-help">When set, pre-script JSON lines are grouped by this field and each group runs as its own concurrent agent. Runs are serialized within a lane, parallel across lanes.</div>
             </div>
             <div class="form-group">
-              <label>Prompt</label>
-              <textarea name="prompt" rows="8" required placeholder="Instructions for the agent..."></textarea>
+              <label>Prompt (required unless script-only)</label>
+              <textarea name="prompt" rows="8" placeholder="Instructions for the agent..."></textarea>
             </div>
             <div class="form-row">
               <div class="form-group">
@@ -664,6 +673,7 @@
           trigger_type: fd.get('trigger_type'),
           trigger_config: fd.get('trigger_config'),
           pre_script: fd.get('pre_script'),
+          pre_script_timeout_ms: Number(fd.get('pre_script_timeout_ms')),
           script_only: fd.has('script_only'),
           lane_key: fd.get('lane_key'),
           prompt: fd.get('prompt'),
