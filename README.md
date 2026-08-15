@@ -49,31 +49,41 @@ Generated runtime files are ignored by git:
 - `*.db-wal`
 - `*.log`
 
-## Nessie Trial Lifecycle Preview
+## Nessie Trial Lifecycle Outreach
 
-The repository includes a preview-only Nessie lifecycle agent. Its pre-script
-runs the deterministic `trial-needs-activation` and `trial-near-expiry`
-campaign previews in script-only mode. Empty audiences produce no output, and
-non-empty previews are recorded without an LLM call. The agent never sends
-email.
+The repository includes an automated Nessie lifecycle sender. Every six hours,
+its pre-script runs the deterministic `trial-needs-activation` and
+`trial-near-expiry` campaign previews. Empty audiences do nothing. Non-empty
+audiences are sent immediately through `scripts/send.py --yes`, and the run
+audit files are committed and pushed to `nessie-campaigns`. Recipient
+selection, delivery, and auditing run in script-only mode with no LLM call.
+
+The campaign runner remains the source of truth for dev exclusions, global and
+campaign-specific suppression, prior-run and provider deduplication, template
+variants, unsubscribe tokens, and the final strongly consistent suppression
+gate immediately before delivery.
 
 On Matrix, install the campaign dependencies in a repository-local virtual
-environment and expose `RESEND_API_KEY` to the orchestrator process for the
-campaigns repository's Resend deduplication check. Then create or update the
-agent:
+environment. Store the Resend key in a mode-600 file so it does not live in an
+agent prompt or committed source. Then create or update the agent:
 
 ```bash
 cd ~/nessie-campaigns
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
+mkdir -p ~/.config/nessie-campaigns
+chmod 700 ~/.config/nessie-campaigns
+# Write the key to ~/.config/nessie-campaigns/resend-api-key, then:
+chmod 600 ~/.config/nessie-campaigns/resend-api-key
 cd ~/boring-orchestrator
 python3 scripts/upsert-trial-lifecycle-agent.py
 ```
 
-The agent runs every six hours in script-only mode. An empty preview creates no
-run; a non-empty preview is recorded verbatim with zero LLM calls. Operators
-must still inspect the campaign preview and explicitly run the campaign send
-command separately.
+The agent runs every six hours in script-only mode. An empty audience creates
+no run. A non-empty audience creates one compact run summary with aggregate
+attempted, sent, failed, not-attempted, suppression, and template-variant
+counts. Recipient emails are kept in the campaign repo's audit record and are
+not copied into the orchestrator summary.
 
 The committed upsert payload is the source of truth. Running it again replaces
 dashboard edits to this agent's schedule, pre-script, or other settings.

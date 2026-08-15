@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create or update the preview-only Boring Orchestrator lifecycle agent."""
+"""Create or update the automated Boring Orchestrator lifecycle sender."""
 
 from __future__ import annotations
 
@@ -9,7 +9,8 @@ import urllib.request
 
 
 BASE_URL = os.environ.get("BORING_ORCHESTRATOR_URL", "http://localhost:44066")
-AGENT_NAME = "Trial lifecycle preview"
+AGENT_NAME = "Trial lifecycle outreach"
+LEGACY_AGENT_NAMES = {"Trial lifecycle preview"}
 
 PAYLOAD = {
     "name": AGENT_NAME,
@@ -18,7 +19,7 @@ PAYLOAD = {
     "provider": "claude",
     "pre_script": "bash ~/boring-orchestrator/scripts/check-trial-lifecycle.sh",
     "script_only": True,
-    "prompt": "Script-only lifecycle preview. Record pre-script output verbatim. Never send email.",
+    "prompt": "Script-only trial lifecycle sender. Record the deterministic send summary verbatim.",
     "cwd": "/home/matrix/nessie-campaigns",
     "model": "claude-haiku-4-5",
     "reasoning_effort": "",
@@ -43,7 +44,12 @@ def request(path, *, method="GET", payload=None):
 def main():
     agents = request("/api/agents")
     existing = next(
-        (agent for agent in agents if agent.get("name") == AGENT_NAME), None
+        (
+            agent
+            for agent in agents
+            if agent.get("name") in ({AGENT_NAME} | LEGACY_AGENT_NAMES)
+        ),
+        None,
     )
     if existing:
         agent = request(
