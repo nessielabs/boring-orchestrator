@@ -8,7 +8,7 @@ function runPreScript(agent: Agent): { ok: boolean; output: string } {
   try {
     const output = execSync(agent.pre_script, {
       cwd: agent.cwd || undefined,
-      timeout: 60_000,
+      timeout: agent.pre_script_timeout_ms,
       encoding: "utf-8",
       shell: "/bin/bash",
       env: process.env,
@@ -21,7 +21,9 @@ function runPreScript(agent: Agent): { ok: boolean; output: string } {
 
     return { ok: true, output };
   } catch (err: any) {
-    const reason = err.killed ? `timeout (${err.signal})` : `exit code ${err.status}`;
+    const reason = err.status === null && err.signal
+      ? `timeout (${err.signal})`
+      : `exit code ${err.status}`;
     console.log(`[executor] Agent "${agent.name}" pre-script failed: ${reason}, skipping run`);
     return { ok: false, output: err.stdout?.trim() || "" };
   }
@@ -50,6 +52,13 @@ function partitionByLane(output: string, laneKey: string): Map<string, string[]>
 export function executeAgent(agent: Agent, triggerPayload?: string): string[] {
   const laneKey = agent.lane_key?.trim() || "";
 
+  // API validation prevents this state, but keep execution fail-closed for
+  // agents inserted or modified directly in SQLite.
+  if (agent.script_only && !agent.pre_script.trim()) {
+    console.log(`[executor] Agent "${agent.name}" is script-only without a pre-script, skipping`);
+    return [];
+  }
+
   // Lanes only make sense when a pre-script produces partitionable output.
   if (!laneKey || !agent.pre_script.trim()) {
     if (hasRunningRun(agent.id)) {
@@ -58,12 +67,12 @@ export function executeAgent(agent: Agent, triggerPayload?: string): string[] {
     }
     const pre = runPreScript(agent);
     if (!pre.ok) return [];
-    const prompt = pre.output
-      ? agent.prompt.replace(/\{\{pre_script_output\}\}/g, pre.output)
-      : agent.prompt;
     if (agent.script_only) {
       return [recordScriptOnlyRun(agent, "", triggerPayload, pre.output)];
     }
+    const prompt = pre.output
+      ? agent.prompt.replace(/\{\{pre_script_output\}\}/g, pre.output)
+      : agent.prompt;
     return [startRun(agent, prompt, "", triggerPayload, pre.output)];
   }
 
