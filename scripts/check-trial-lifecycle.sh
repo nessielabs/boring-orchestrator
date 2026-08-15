@@ -112,7 +112,8 @@ PY
     continue
   fi
 
-  before_status=$(git status --porcelain -- "campaigns/$campaign_id/runs")
+  before_status=$(git status --porcelain --untracked-files=all -- \
+    "campaigns/$campaign_id/runs")
   if [ -n "$before_status" ]; then
     echo "Unexpected pending run files for $campaign_id after recovery" >&2
     echo "$before_status" >&2
@@ -130,7 +131,8 @@ PY
   while IFS= read -r path; do
     [ -n "$path" ] && run_files+=("$path")
   done < <(
-    git status --porcelain -- "campaigns/$campaign_id/runs" \
+    git status --porcelain --untracked-files=all -- \
+      "campaigns/$campaign_id/runs" \
       | sed -E 's/^...//'
   )
 done
