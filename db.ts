@@ -20,6 +20,7 @@ db.exec(`
     model TEXT NOT NULL DEFAULT 'claude-sonnet-4-6',
     reasoning_effort TEXT NOT NULL DEFAULT '' CHECK(reasoning_effort IN ('', 'none', 'low', 'medium', 'high', 'xhigh', 'max')),
     pre_script TEXT NOT NULL DEFAULT '',
+    script_only INTEGER NOT NULL DEFAULT 0,
     lane_key TEXT NOT NULL DEFAULT '',
     skip_permissions INTEGER NOT NULL DEFAULT 0,
     enabled INTEGER NOT NULL DEFAULT 1,
@@ -48,6 +49,7 @@ db.exec(`
 
 // migration: add pre_script column if missing
 try { db.exec("ALTER TABLE agents ADD COLUMN pre_script TEXT NOT NULL DEFAULT ''"); } catch {}
+try { db.exec("ALTER TABLE agents ADD COLUMN script_only INTEGER NOT NULL DEFAULT 0"); } catch {}
 try { db.exec("ALTER TABLE agents ADD COLUMN provider TEXT NOT NULL DEFAULT 'claude'"); } catch {}
 try { db.exec("ALTER TABLE agents ADD COLUMN reasoning_effort TEXT NOT NULL DEFAULT '' CHECK(reasoning_effort IN ('', 'none', 'low', 'medium', 'high', 'xhigh', 'max'))"); } catch {}
 try { db.exec("ALTER TABLE agents ADD COLUMN lane_key TEXT NOT NULL DEFAULT ''"); } catch {}
@@ -66,6 +68,7 @@ export interface Agent {
   model: string;
   reasoning_effort: ReasoningEffort;
   pre_script: string;
+  script_only: number;
   lane_key: string;
   skip_permissions: number;
   enabled: number;
@@ -132,9 +135,9 @@ export function createAgent(agent: Omit<Agent, "id" | "created_at" | "updated_at
   const id = genId();
   const now = new Date().toISOString();
   db.prepare(`
-    INSERT INTO agents (id, name, trigger_type, trigger_config, provider, prompt, cwd, model, reasoning_effort, pre_script, lane_key, skip_permissions, enabled, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(id, agent.name, agent.trigger_type, agent.trigger_config, agent.provider, agent.prompt, agent.cwd, agent.model, agent.reasoning_effort, agent.pre_script, agent.lane_key, agent.skip_permissions, agent.enabled, now, now);
+    INSERT INTO agents (id, name, trigger_type, trigger_config, provider, prompt, cwd, model, reasoning_effort, pre_script, script_only, lane_key, skip_permissions, enabled, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(id, agent.name, agent.trigger_type, agent.trigger_config, agent.provider, agent.prompt, agent.cwd, agent.model, agent.reasoning_effort, agent.pre_script, agent.script_only, agent.lane_key, agent.skip_permissions, agent.enabled, now, now);
   return getAgent(id)!;
 }
 

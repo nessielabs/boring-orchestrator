@@ -24,9 +24,12 @@ router.get("/api/agents/:id", (req, res) => {
 });
 
 router.post("/api/agents", (req, res) => {
-  const { name, trigger_type, trigger_config, provider, prompt, cwd, model, reasoning_effort, pre_script, lane_key, skip_permissions, enabled } = req.body;
+  const { name, trigger_type, trigger_config, provider, prompt, cwd, model, reasoning_effort, pre_script, script_only, lane_key, skip_permissions, enabled } = req.body;
   if (!name || !trigger_type || !prompt) {
     return res.status(400).json({ error: "name, trigger_type, and prompt are required" });
+  }
+  if (script_only && !pre_script?.trim()) {
+    return res.status(400).json({ error: "script_only requires pre_script" });
   }
   const normalizedProvider = provider === "codex" ? "codex" : "claude";
   const normalizedReasoningEffort = normalizeReasoningEffort(reasoning_effort);
@@ -43,6 +46,7 @@ router.post("/api/agents", (req, res) => {
     model: model || (normalizedProvider === "claude" ? "claude-sonnet-4-6" : ""),
     reasoning_effort: normalizedReasoningEffort,
     pre_script: pre_script || "",
+    script_only: script_only ? 1 : 0,
     lane_key: lane_key || "",
     skip_permissions: skip_permissions ? 1 : 0,
     enabled: enabled !== false ? 1 : 0,
@@ -52,6 +56,9 @@ router.post("/api/agents", (req, res) => {
 });
 
 router.put("/api/agents/:id", (req, res) => {
+  const existingAgent = getAgent(req.params.id);
+  if (!existingAgent) return res.status(404).json({ error: "Agent not found" });
+
   const updates = { ...req.body };
   if ("provider" in updates) updates.provider = updates.provider === "codex" ? "codex" : "claude";
   if ("reasoning_effort" in updates) {
@@ -62,9 +69,14 @@ router.put("/api/agents/:id", (req, res) => {
     updates.reasoning_effort = normalizedReasoningEffort;
   }
   if ("skip_permissions" in updates) updates.skip_permissions = updates.skip_permissions ? 1 : 0;
+  if ("script_only" in updates) updates.script_only = updates.script_only ? 1 : 0;
+  const effectiveScriptOnly = "script_only" in updates ? updates.script_only : existingAgent.script_only;
+  const effectivePreScript = "pre_script" in updates ? updates.pre_script : existingAgent.pre_script;
+  if (effectiveScriptOnly && !(typeof effectivePreScript === "string" && effectivePreScript.trim())) {
+    return res.status(400).json({ error: "script_only requires pre_script" });
+  }
   if ("enabled" in updates) updates.enabled = updates.enabled ? 1 : 0;
   const agent = updateAgent(req.params.id, updates);
-  if (!agent) return res.status(404).json({ error: "Agent not found" });
   syncScheduler();
   res.json(agent);
 });
