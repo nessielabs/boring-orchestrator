@@ -26,6 +26,7 @@ fi
 : "${RESEND_API_KEY:?RESEND_API_KEY must be set or stored in $RESEND_KEY_FILE}"
 
 cd "$CAMPAIGNS_DIR"
+REBASE_MARKER=$(git rev-parse --git-path boring-orchestrator-trial-lifecycle-rebase)
 
 if [ ! -x "$PYTHON_BIN" ] && command -v python3 >/dev/null 2>&1; then
   PYTHON_BIN=$(command -v python3)
@@ -50,6 +51,33 @@ if command -v flock >/dev/null 2>&1; then
   fi
 fi
 
+abort_pending_rebase() {
+  local rebase_merge
+  local rebase_apply
+  rebase_merge=$(git rev-parse --git-path rebase-merge)
+  rebase_apply=$(git rev-parse --git-path rebase-apply)
+  if [ ! -d "$rebase_merge" ] && [ ! -d "$rebase_apply" ]; then
+    rm -f -- "$REBASE_MARKER"
+    return 0
+  fi
+  if [ ! -f "$REBASE_MARKER" ]; then
+    echo "An unrelated Git rebase is in progress; refusing automated recovery" >&2
+    return 1
+  fi
+  if git rebase --abort; then
+    rm -f -- "$REBASE_MARKER"
+    echo "NESSIE_CAMPAIGNS_REBASE_ABORTED: the checkout is ready for a future tick" >&2
+    return 0
+  fi
+  echo "Could not abort failed audit rebase" >&2
+  return 1
+}
+
+# A killed prior tick may have left Git inside a rebase. Restore the checkout
+# before applying the ordinary dirty-tree safety check.
+if ! abort_pending_rebase; then
+  exit 1
+fi
 if ! git diff --quiet || ! git diff --cached --quiet; then
   echo "Tracked changes exist in $CAMPAIGNS_DIR; refusing automated send" >&2
   git status --short >&2
@@ -57,26 +85,40 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
 fi
 
 publish_audits() {
-  git add -A -- \
+  if ! git add -A -- \
     campaigns/trial-needs-activation \
-    campaigns/trial-near-expiry
-  if git diff --cached --quiet; then
-    return 0
+    campaigns/trial-near-expiry; then
+    echo "Could not stage trial lifecycle audit records" >&2
+    return 1
   fi
 
-  git commit --quiet \
-    -m "Run: trial lifecycle (automated)" \
-    -m "Record the unattended trial activation and near-expiry campaign sends."
+  if ! git diff --cached --quiet; then
+    if ! git commit --quiet \
+      -m "Run: trial lifecycle (automated)" \
+      -m "Record the unattended trial activation and near-expiry campaign sends."; then
+      echo "Could not commit trial lifecycle audit records" >&2
+      return 1
+    fi
+  fi
 
   if [ "$SYNC_GIT" != "1" ]; then
     return 0
   fi
 
   for attempt in 1 2 3; do
-    if git pull --rebase --quiet && git push --quiet; then
-      return 0
+    : > "$REBASE_MARKER"
+    if ! git pull --rebase --quiet; then
+      echo "Audit rebase attempt $attempt failed" >&2
+      if ! abort_pending_rebase; then
+        return 1
+      fi
+    else
+      rm -f -- "$REBASE_MARKER"
+      if git push --quiet; then
+        return 0
+      fi
     fi
-    echo "Audit push attempt $attempt failed; retrying" >&2
+    echo "Audit publish attempt $attempt failed; retrying" >&2
   done
   echo "Could not push trial lifecycle audit records after three attempts" >&2
   return 1
@@ -84,9 +126,12 @@ publish_audits() {
 
 # Recover and publish a run record left by an interrupted prior tick before
 # resolving a new audience. Provider and runs-based dedup prevent re-sends.
-publish_audits
-if [ "$SYNC_GIT" = "1" ]; then
-  git pull --ff-only --quiet
+if ! publish_audits; then
+  # Do not resolve or send a new audience while a prior audit is unpublished.
+  # Exit successfully with a compact warning so script-only mode records the
+  # blocked tick in the dashboard instead of silently dropping it.
+  printf '%s\n' '{"audit_publish":"pending","mode":"audit_recovery_failed","send_skipped":true}'
+  exit 0
 fi
 
 run_files=()
@@ -141,7 +186,18 @@ if [ "${#run_files[@]}" -eq 0 ]; then
   exit 0
 fi
 
-summary=$("$PYTHON_BIN" - "${run_files[@]}" <<'PY'
+audit_publish="pushed"
+if [ "$SYNC_GIT" != "1" ]; then
+  audit_publish="local_only"
+fi
+if ! publish_audits; then
+  # Delivery already happened. Preserve the dashboard summary and leave the
+  # local commit for the next tick to publish instead of returning no run.
+  audit_publish="pending"
+  echo "Delivery completed, but audit publishing is pending recovery" >&2
+fi
+
+summary=$("$PYTHON_BIN" - "$audit_publish" "${run_files[@]}" <<'PY'
 import json
 import sys
 from collections import Counter
@@ -151,7 +207,7 @@ import yaml
 
 campaigns = []
 total = Counter()
-for filename in sys.argv[1:]:
+for filename in sys.argv[2:]:
     record = yaml.safe_load(Path(filename).read_text())
     send = record["send"]
     variants = Counter(
@@ -179,6 +235,7 @@ for filename in sys.argv[1:]:
     )
 
 print(json.dumps({
+    "audit_publish": sys.argv[1],
     "mode": "automated_send",
     "campaigns": campaigns,
     "total": dict(total),
@@ -186,5 +243,4 @@ print(json.dumps({
 PY
 )
 
-publish_audits
 printf '%s\n' "$summary"
