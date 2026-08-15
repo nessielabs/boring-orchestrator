@@ -64,8 +64,10 @@ variants, unsubscribe tokens, and the final strongly consistent suppression
 gate immediately before delivery.
 
 On Matrix, install the campaign dependencies in a repository-local virtual
-environment. Store the Resend key in a mode-600 file so it does not live in an
-agent prompt or committed source. Then create or update the agent:
+environment when `python3-venv` is available. Otherwise, install them in the
+system Python; the sender validates imports before any preview or send. Store
+the Resend key in a mode-600 file so it does not live in an agent prompt or
+committed source. Then create or update the agent:
 
 ```bash
 cd ~/nessie-campaigns

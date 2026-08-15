@@ -27,9 +27,17 @@ fi
 
 cd "$CAMPAIGNS_DIR"
 
+if [ ! -x "$PYTHON_BIN" ] && command -v python3 >/dev/null 2>&1; then
+  PYTHON_BIN=$(command -v python3)
+fi
 if [ ! -x "$PYTHON_BIN" ]; then
-  echo "Campaign Python environment not found at $PYTHON_BIN" >&2
-  echo "Create it with: python3 -m venv .venv && .venv/bin/pip install -r requirements.txt" >&2
+  echo "Campaign Python runtime not found" >&2
+  exit 1
+fi
+if ! "$PYTHON_BIN" -c \
+  "import google.cloud.bigquery, google.cloud.datastore, googleapiclient.discovery, requests, yaml"; then
+  echo "Campaign Python dependencies are missing from $PYTHON_BIN" >&2
+  echo "Install requirements.txt in a repository .venv or the system Python" >&2
   exit 1
 fi
 
