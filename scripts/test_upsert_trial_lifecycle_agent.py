@@ -162,7 +162,7 @@ exit 1
         env.update(
             {
                 "FAKE_RECIPIENT_COUNT": str(recipient_count),
-                "NESSIE_LIFECYCLE_JITTER_MAX_SECONDS": "1",
+                "NESSIE_LIFECYCLE_JITTER_MAX_SECONDS": "0",
                 "HOME": str(self.root),
                 "NESSIE_CAMPAIGNS_DIR": str(self.campaigns),
                 "NESSIE_CAMPAIGNS_LOCK_FILE": str(self.root / "sender.lock"),
