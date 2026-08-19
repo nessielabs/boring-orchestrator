@@ -10,6 +10,13 @@ set -euo pipefail
 
 export PATH="$HOME/.local/bin:$PATH"
 
+# Spread startup away from other top-of-minute cron jobs. The orchestrator's
+# pre_script_timeout_ms times this sleep plus the entire preview-and-send run,
+# so the jitter ceiling must stay far below that timeout: a 15-minute jitter
+# against a 10-minute timeout once silently killed the day's only in-window
+# sending cycle. Tests set NESSIE_LIFECYCLE_JITTER_MAX_SECONDS=1 to skip it.
+sleep "$((RANDOM % ${NESSIE_LIFECYCLE_JITTER_MAX_SECONDS:-300}))"
+
 CAMPAIGNS_DIR="${NESSIE_CAMPAIGNS_DIR:-$HOME/nessie-campaigns}"
 PYTHON_BIN="${NESSIE_CAMPAIGNS_PYTHON:-$CAMPAIGNS_DIR/.venv/bin/python}"
 RESEND_KEY_FILE="${NESSIE_RESEND_API_KEY_FILE:-$HOME/.config/nessie-campaigns/resend-api-key}"
