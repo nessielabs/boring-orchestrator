@@ -91,6 +91,7 @@ class UpsertTrialLifecycleAgentTests(unittest.TestCase):
         self.assertIn('scripts/send.py "$campaign_id" --yes', script)
         self.assertIn("publish_audits", script)
         self.assertIn("flock -n", script)
+        self.assertIn("NESSIE_LIFECYCLE_JITTER_MAX_SECONDS", script)
         self.assertEqual(script.count("--untracked-files=all"), 2)
 
 
