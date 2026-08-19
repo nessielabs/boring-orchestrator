@@ -89,8 +89,9 @@ cd ~/boring-orchestrator
 python3 scripts/upsert-trial-lifecycle-agent.py
 ```
 
-The agent runs every six hours in script-only mode with a ten-minute pre-script
-timeout. An empty audience creates no run. A non-empty audience creates one compact run summary with aggregate
+The agent runs every six hours (at minute 39, offset from top-of-hour cron
+load, plus up to five minutes of jitter inside the sender script) in
+script-only mode with a twenty-minute pre-script timeout. An empty audience creates no run. A non-empty audience creates one compact run summary with aggregate
 attempted, sent, failed, not-attempted, suppression, and template-variant
 counts. Recipient emails are kept in the campaign repo's audit record and are
 not copied into the orchestrator summary. If delivery succeeds but the audit
