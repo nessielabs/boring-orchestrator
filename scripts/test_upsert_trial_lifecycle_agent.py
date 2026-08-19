@@ -40,7 +40,7 @@ class UpsertTrialLifecycleAgentTests(unittest.TestCase):
         self.assertTrue(calls[1][2]["script_only"])
         self.assertEqual(calls[1][2]["name"], "Trial lifecycle outreach")
         self.assertEqual(calls[1][2]["prompt"], "")
-        self.assertEqual(calls[1][2]["pre_script_timeout_ms"], 600_000)
+        self.assertEqual(calls[1][2]["pre_script_timeout_ms"], 1_200_000)
 
     def test_updates_existing_agent(self):
         calls = []
@@ -91,6 +91,7 @@ class UpsertTrialLifecycleAgentTests(unittest.TestCase):
         self.assertIn('scripts/send.py "$campaign_id" --yes', script)
         self.assertIn("publish_audits", script)
         self.assertIn("flock -n", script)
+        self.assertIn("NESSIE_LIFECYCLE_JITTER_MAX_SECONDS", script)
         self.assertEqual(script.count("--untracked-files=all"), 2)
 
 
@@ -162,6 +163,7 @@ exit 1
         env.update(
             {
                 "FAKE_RECIPIENT_COUNT": str(recipient_count),
+                "NESSIE_LIFECYCLE_JITTER_MAX_SECONDS": "0",
                 "HOME": str(self.root),
                 "NESSIE_CAMPAIGNS_DIR": str(self.campaigns),
                 "NESSIE_CAMPAIGNS_LOCK_FILE": str(self.root / "sender.lock"),

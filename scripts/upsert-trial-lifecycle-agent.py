@@ -15,10 +15,10 @@ LEGACY_AGENT_NAMES = {"Trial lifecycle preview"}
 PAYLOAD = {
     "name": AGENT_NAME,
     "trigger_type": "cron",
-    "trigger_config": "0 */6 * * *",
+    "trigger_config": "39 */6 * * *",
     "provider": "claude",
     "pre_script": "bash ~/boring-orchestrator/scripts/check-trial-lifecycle.sh",
-    "pre_script_timeout_ms": 600_000,
+    "pre_script_timeout_ms": 1_200_000,
     "script_only": True,
     "prompt": "",
     "cwd": "/home/matrix/nessie-campaigns",
