@@ -117,8 +117,7 @@ function startRun(agent: Agent, prompt: string, lane: string, triggerPayload: st
   }
 
   const provider = agent.provider || "claude";
-  const args = provider === "codex" ? codexArgs(agent) : claudeArgs(agent, prompt);
-  const command = provider === "codex" ? "codex" : "claude";
+  const { command, args, stdin } = buildProviderInvocation(agent, prompt);
 
   const spawnOpts: { cwd?: string; env: NodeJS.ProcessEnv } = {
     env: {
@@ -132,10 +131,10 @@ function startRun(agent: Agent, prompt: string, lane: string, triggerPayload: st
     spawnOpts.cwd = agent.cwd;
   }
 
-  const child = spawn(command, args, { ...spawnOpts, stdio: provider === "codex" ? ["pipe", "pipe", "pipe"] : ["ignore", "pipe", "pipe"] });
-  if (provider === "codex") {
-    child.stdin!.end(prompt);
-  }
+  // Prompts can include large pre-script payloads. Passing them as argv can
+  // exceed the OS argument-size limit before the provider process starts.
+  const child = spawn(command, args, { ...spawnOpts, stdio: ["pipe", "pipe", "pipe"] });
+  child.stdin!.end(stdin);
 
   let buffer = "";
   let resultText = "";
@@ -246,9 +245,20 @@ function startRun(agent: Agent, prompt: string, lane: string, triggerPayload: st
   }
 }
 
-function claudeArgs(agent: Agent, prompt: string): string[] {
+export function buildProviderInvocation(agent: Agent, prompt: string): {
+  command: "claude" | "codex";
+  args: string[];
+  stdin: string;
+} {
+  const provider = agent.provider || "claude";
+  return provider === "codex"
+    ? { command: "codex", args: codexArgs(agent), stdin: prompt }
+    : { command: "claude", args: claudeArgs(agent), stdin: prompt };
+}
+
+function claudeArgs(agent: Agent): string[] {
   const args = [
-    "-p", prompt,
+    "-p",
     "--output-format", "stream-json",
     "--verbose",
     "--model", agent.model || "claude-sonnet-4-6",

@@ -33,7 +33,9 @@ PORT=3000 npm start
 - Cron agents are scheduled with `node-cron`.
 - Manual agents can be triggered from the dashboard.
 - Webhook agents can be triggered with `POST /webhook` or `POST /webhook/:path`.
-- Each run executes `claude -p --output-format stream-json` and stores the streamed transcript.
+- Each run streams its prompt to `claude -p --output-format stream-json` over
+  stdin and stores the streamed transcript. Using stdin keeps large pre-script
+  payloads out of the process argument list.
 - Agents can run on Claude or Codex. Claude uses `claude -p`; Codex uses `codex exec --json --skip-git-repo-check`.
 - Codex agents can set a per-agent reasoning effort from `none` through `max`; `xhigh` is labeled "Extra high" in the dashboard.
 - The "Dangerously skip permissions" checkbox maps to `--dangerously-skip-permissions` for Claude and `--dangerously-bypass-approvals-and-sandbox` for Codex.
