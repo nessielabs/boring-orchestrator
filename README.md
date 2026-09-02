@@ -46,6 +46,55 @@ PORT=3000 npm start
   record non-empty pre-script output as a successful run, and never launch
   Claude or Codex.
 
+## Deterministic Website Change Events
+
+`scripts/website_change_events.py` turns a CSV of company websites into compact
+JSONL change events before an agent is launched. It uses Firecrawl batch scrape
+with line-level change tracking, silently establishes first-scrape baselines,
+and emits only `changed` or `removed` pages. No LLM participates in target
+selection, fetching, diffing, event identity, or retry behavior.
+
+The producer keeps one pending batch in a private runtime directory. Re-running
+`prepare` returns that batch byte-for-byte without calling Firecrawl again.
+After the consumer finishes its work and delivers its result, it must
+acknowledge the exact `batchId`; failed consumers therefore get the same events
+on their next run instead of losing them.
+
+Keep the target CSV, API key, and state outside this repository. For example:
+
+```bash
+chmod 600 ~/.config/firecrawl/api-key
+python3 scripts/website_change_events.py prepare \
+  --input /srv/company-monitor/targets.csv \
+  --state-dir /srv/company-monitor/state \
+  --name-column 'Company Name' \
+  --url-column 'Website URL' \
+  --metadata-column 'Source List' \
+  --api-key-file ~/.config/firecrawl/api-key
+```
+
+Use that command as an agent's pre-script and include
+`{{pre_script_output}}` in the prompt. Empty output means no changed pages, so
+Boring Orchestrator skips the model call. After successful processing, the
+consumer acknowledges the shared batch ID:
+
+```bash
+python3 scripts/website_change_events.py ack \
+  --state-dir /srv/company-monitor/state \
+  --batch-id '<batchId>'
+```
+
+Inspect queue state without fetching anything:
+
+```bash
+python3 scripts/website_change_events.py status \
+  --state-dir /srv/company-monitor/state
+```
+
+For offline validation, pass `--fixture response.json` to `prepare`. A fixture
+is either an array of Firecrawl page results or an object with a `data` array;
+no API credential or network call is used.
+
 ## Notes
 
 This is a trusted local tool. Agent prompts and pre-scripts can execute commands in your environment, especially if you enable skipped permissions. Do not expose it to the public internet without adding your own access control.
