@@ -95,6 +95,31 @@ For offline validation, pass `--fixture response.json` to `prepare`. A fixture
 is either an array of Firecrawl page results or an object with a `data` array;
 no API credential or network call is used.
 
+### Nessie Trigger Radar
+
+The committed Trigger Radar configuration uses this producer as its pre-script,
+then launches Opus only when at least one changed or removed page is emitted.
+Opus interprets those events and acknowledges the pending batch only after its
+report is delivered. It no longer receives or researches the complete roster.
+
+On Matrix, store the Firecrawl service credential outside the repository and
+then apply the safe-disabled configuration:
+
+```bash
+mkdir -p ~/.config/firecrawl
+chmod 700 ~/.config/firecrawl
+# Write the key to ~/.config/firecrawl/api-key, then:
+chmod 600 ~/.config/firecrawl/api-key
+cd ~/boring-orchestrator
+python3 scripts/upsert-trigger-radar-agent.py
+```
+
+The upsert deliberately leaves the agent disabled. Establish the first baseline
+with `scripts/prepare-trigger-radar-events.sh`, verify that it emits no events,
+and only then enable the agent in Boring Orchestrator. The current Ashton roster
+contains 525 rows: 444 have valid unique website URLs and 81 need explicit URL
+curation before the producer can monitor them. It will not guess missing sites.
+
 ## Notes
 
 This is a trusted local tool. Agent prompts and pre-scripts can execute commands in your environment, especially if you enable skipped permissions. Do not expose it to the public internet without adding your own access control.
