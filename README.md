@@ -53,6 +53,8 @@ JSONL change events before an agent is launched. It uses Firecrawl batch scrape
 with line-level change tracking, silently establishes first-scrape baselines,
 and emits only `changed` or `removed` pages. No LLM participates in target
 selection, fetching, diffing, event identity, or retry behavior.
+Each page has a bounded scrape timeout so one unresponsive site cannot leave a
+multi-site batch running indefinitely.
 
 The producer keeps one pending batch in a private runtime directory. Re-running
 `prepare` returns that batch byte-for-byte without calling Firecrawl again.

@@ -34,5 +34,6 @@ exec python3 "$orchestrator_dir/scripts/website_change_events.py" prepare \
   --metadata-column 'Source Lists' \
   --api-key-file "$api_key_file" \
   --tag 'nessie-trigger-radar-daily' \
-  --batch-size 100 \
+  --batch-size 25 \
+  --page-timeout-ms 60000 \
   --timeout-seconds 600

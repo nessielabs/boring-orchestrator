@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from scripts.website_change_events import (
+    FirecrawlClient,
     StateStore,
     Target,
     acknowledge,
@@ -17,6 +18,30 @@ from scripts.website_change_events import (
 
 
 class WebsiteChangeEventsTest(unittest.TestCase):
+    def test_batch_scrape_sets_a_per_page_timeout(self):
+        client = FirecrawlClient("test-key", poll_seconds=0, timeout_seconds=1)
+        calls = []
+
+        def fake_request(method, url, payload=None):
+            calls.append((method, url, payload))
+            if method == "POST":
+                return {"id": "batch-id"}
+            return {"status": "completed", "data": []}
+
+        client._request = fake_request
+
+        self.assertEqual(
+            client.scrape(
+                ["https://acme.example/"],
+                tag="daily",
+                max_concurrency=3,
+                page_timeout_ms=60_000,
+            ),
+            [],
+        )
+        self.assertEqual(calls[0][2]["timeout"], 60_000)
+        self.assertEqual(calls[0][2]["maxConcurrency"], 3)
+
     def test_canonicalizes_urls_without_fragments_or_default_ports(self):
         self.assertEqual(canonicalize_url("Example.COM:443/jobs/#open"), "https://example.com/jobs")
         self.assertEqual(canonicalize_url("http://Example.COM:80/"), "http://example.com/")

@@ -103,7 +103,14 @@ class FirecrawlClient:
         self.poll_seconds = poll_seconds
         self.timeout_seconds = timeout_seconds
 
-    def scrape(self, urls: Sequence[str], *, tag: str, max_concurrency: int | None) -> list[dict[str, Any]]:
+    def scrape(
+        self,
+        urls: Sequence[str],
+        *,
+        tag: str,
+        max_concurrency: int | None,
+        page_timeout_ms: int,
+    ) -> list[dict[str, Any]]:
         payload: dict[str, Any] = {
             "urls": list(urls),
             "ignoreInvalidURLs": True,
@@ -114,6 +121,7 @@ class FirecrawlClient:
             "onlyMainContent": True,
             "maxAge": 0,
             "storeInCache": True,
+            "timeout": page_timeout_ms,
         }
         if max_concurrency is not None:
             payload["maxConcurrency"] = max_concurrency
@@ -400,6 +408,7 @@ def prepare(args: argparse.Namespace) -> int:
                 [target.url for target in target_batch],
                 tag=args.tag,
                 max_concurrency=args.max_concurrency,
+                page_timeout_ms=args.page_timeout_ms,
             )
             events, batch_unmapped = build_events(
                 target_batch,
@@ -486,6 +495,7 @@ def build_parser() -> argparse.ArgumentParser:
     prepare_parser.add_argument("--tag", default="boring-orchestrator-daily")
     prepare_parser.add_argument("--batch-size", type=int, default=100)
     prepare_parser.add_argument("--max-concurrency", type=int)
+    prepare_parser.add_argument("--page-timeout-ms", type=int, default=60_000)
     prepare_parser.add_argument("--poll-seconds", type=float, default=2)
     prepare_parser.add_argument("--timeout-seconds", type=int, default=1_800)
     prepare_parser.add_argument("--max-diff-chars", type=int, default=12_000)
@@ -504,7 +514,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def validate_args(args: argparse.Namespace) -> None:
-    for name in ("batch_size", "timeout_seconds", "max_diff_chars"):
+    for name in ("batch_size", "timeout_seconds", "max_diff_chars", "page_timeout_ms"):
         if hasattr(args, name) and getattr(args, name) <= 0:
             raise MonitorError(f"--{name.replace('_', '-')} must be positive")
     if hasattr(args, "poll_seconds") and args.poll_seconds < 0:
