@@ -116,9 +116,26 @@ cd ~/boring-orchestrator
 python3 scripts/upsert-trigger-radar-agent.py
 ```
 
-The upsert deliberately leaves the agent disabled. Establish the first baseline
-with `scripts/prepare-trigger-radar-events.sh`, verify that it emits no events,
-and only then enable the agent in Boring Orchestrator. The current Ashton roster
+The upsert deliberately leaves the agent disabled. Next, build the per-company
+source registry so the producer watches more than each homepage:
+
+```bash
+scripts/discover-trigger-radar-sources.sh            # ~1 Firecrawl map credit per company
+scripts/discover-trigger-radar-sources.sh --refresh  # re-map instead of using the cache
+```
+
+`scripts/discover_company_sources.py` maps each company site once and writes
+`source-registry.csv` with one row per (company, source type, URL) for the
+homepage, careers page or external job board, newsroom, blog, and changelog.
+Classification is deterministic (path regexes, index pages preferred), results
+are cached per company, and companies whose site cannot be mapped are listed in
+`source-registry-errors.json` rather than guessed. When the registry exists,
+`scripts/prepare-trigger-radar-events.sh` monitors it instead of the raw roster
+and tags every event with its `Source Type`.
+
+Then establish the first baseline with `scripts/prepare-trigger-radar-events.sh`,
+verify that it emits no events, and only then enable the agent in Boring
+Orchestrator. The current Ashton roster
 contains 525 rows: 444 have valid unique website URLs and 81 need explicit URL
 curation before the producer can monitor them. It will not guess missing sites.
 
