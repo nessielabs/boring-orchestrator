@@ -179,13 +179,22 @@ class SeenStore:
 
 def firecrawl_scrape(api_key: str, url: str, formats: Sequence[Any]) -> dict[str, Any]:
     payload = json.dumps({"url": url, "formats": list(formats), "onlyMainContent": False, "timeout": 45_000}).encode()
-    status, body = http_get(
-        "https://api.firecrawl.dev/v2/scrape",
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        timeout=90,
-        data=payload,
-    )
-    if status != 200:
+    for attempt in range(4):
+        status, body = http_get(
+            "https://api.firecrawl.dev/v2/scrape",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            timeout=90,
+            data=payload,
+        )
+        if status == 200:
+            break
+        if status == 429 or status >= 500:
+            import time
+
+            time.sleep(50 if status == 429 else 5 * (attempt + 1))
+            continue
+        raise MonitorError(f"Firecrawl scrape {url} HTTP {status}: {body[:200]!r}")
+    else:
         raise MonitorError(f"Firecrawl scrape {url} HTTP {status}: {body[:200]!r}")
     parsed = json.loads(body)
     return parsed.get("data", parsed) if isinstance(parsed, dict) else {}
@@ -362,10 +371,56 @@ def run_ats(args: argparse.Namespace) -> int:
 
 
 def gh_json(args: Sequence[str]) -> Any:
-    result = subprocess.run(["gh", *args], capture_output=True, text=True, timeout=60)
-    if result.returncode != 0:
+    import time
+
+    for attempt in range(4):
+        result = subprocess.run(["gh", *args], capture_output=True, text=True, timeout=60)
+        if result.returncode == 0:
+            if "search/" in " ".join(args):
+                time.sleep(2.5)  # GitHub search quota is 30 requests per minute
+            return json.loads(result.stdout or "null")
+        if "rate limit" in result.stderr.lower() and attempt < 3:
+            time.sleep(65)
+            continue
         raise MonitorError(result.stderr.strip()[:300])
-    return json.loads(result.stdout or "null")
+    raise MonitorError("gh: retries exhausted")
+
+
+def _domain(url: str) -> str:
+    host = (urllib.parse.urlsplit(url).hostname or "").lower()
+    return host[4:] if host.startswith("www.") else host
+
+
+def lookup_org_by_domain(company: dict[str, Any], cache_path: Path) -> str | None:
+    """Search GitHub orgs by company name; accept only an org whose website domain matches."""
+    cache: dict[str, str | None] = {}
+    if cache_path.exists():
+        try:
+            cache = json.loads(cache_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            cache = {}
+    if company["id"] in cache:
+        return cache[company["id"]]
+    domain = _domain(company["homepage"])
+    name = re.sub(r"\s*\(.*?\)\s*", " ", company["name"]).strip()
+    result: str | None = None
+    try:
+        candidates = gh_json(["api", "-X", "GET", "search/users", "-f", f"q={name} type:org", "-f", "per_page=5", "--jq", "[.items[].login]"]) or []
+        for login in candidates:
+            try:
+                profile = gh_json(["api", f"users/{login}", "--jq", "{blog: .blog, name: .name}"])
+            except MonitorError:
+                continue
+            blog = profile.get("blog") or ""
+            if blog and _domain(blog if "://" in blog else f"https://{blog}") == domain:
+                result = login
+                break
+    except MonitorError:
+        result = None
+    cache[company["id"]] = result
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    cache_path.write_text(json.dumps(cache, indent=0), encoding="utf-8")
+    return result
 
 
 def run_github(args: argparse.Namespace) -> int:
@@ -380,12 +435,17 @@ def run_github(args: argparse.Namespace) -> int:
         ats_cache = args.state_dir / "ats-cache" / f"{company['id']}.json"
         if ats_cache.exists():
             corpus += ats_cache.read_text(encoding="utf-8", errors="replace")
+        found = None
         for match in GITHUB_ORG.finditer(corpus):
             org = match.group(1)
             if org.lower() in GITHUB_SKIP:
                 continue
-            orgs.setdefault(org.lower(), {"org": org, "company": company})
+            found = org
             break
+        if not found:
+            found = lookup_org_by_domain(company, args.state_dir / "github-org-cache.json")
+        if found:
+            orgs.setdefault(found.lower(), {"org": found, "company": company})
     targets = list(orgs.values())[: args.limit] if args.limit else list(orgs.values())
     events: list[dict[str, Any]] = []
     stats = {"companies": len(companies), "orgsFound": len(orgs), "repoHits": 0, "errors": 0}
