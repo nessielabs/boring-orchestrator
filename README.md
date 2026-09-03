@@ -33,7 +33,9 @@ PORT=3000 npm start
 - Cron agents are scheduled with `node-cron`.
 - Manual agents can be triggered from the dashboard.
 - Webhook agents can be triggered with `POST /webhook` or `POST /webhook/:path`.
-- Each run executes `claude -p --output-format stream-json` and stores the streamed transcript.
+- Each run streams its prompt to `claude -p --output-format stream-json` over
+  stdin and stores the streamed transcript. Using stdin keeps large pre-script
+  payloads out of the process argument list.
 - Agents can run on Claude or Codex. Claude uses `claude -p`; Codex uses `codex exec --json --skip-git-repo-check`.
 - Codex agents can set a per-agent reasoning effort from `none` through `max`; `xhigh` is labeled "Extra high" in the dashboard.
 - The "Dangerously skip permissions" checkbox maps to `--dangerously-skip-permissions` for Claude and `--dangerously-bypass-approvals-and-sandbox` for Codex.
@@ -43,6 +45,99 @@ PORT=3000 npm start
 - Script-only agents require a non-empty pre-script, allow an empty prompt,
   record non-empty pre-script output as a successful run, and never launch
   Claude or Codex.
+
+## Deterministic Website Change Events
+
+`scripts/website_change_events.py` turns a CSV of company websites into compact
+JSONL change events before an agent is launched. It uses Firecrawl batch scrape
+with line-level change tracking, silently establishes first-scrape baselines,
+and emits only `changed` or `removed` pages. No LLM participates in target
+selection, fetching, diffing, event identity, or retry behavior.
+Each page has a bounded scrape timeout so one unresponsive site cannot leave a
+multi-site batch running indefinitely.
+
+The producer keeps one pending batch in a private runtime directory. Re-running
+`prepare` returns that batch byte-for-byte without calling Firecrawl again.
+After the consumer finishes its work and delivers its result, it must
+acknowledge the exact `batchId`; failed consumers therefore get the same events
+on their next run instead of losing them.
+
+Keep the target CSV, API key, and state outside this repository. For example:
+
+```bash
+chmod 600 ~/.config/firecrawl/api-key
+python3 scripts/website_change_events.py prepare \
+  --input /srv/company-monitor/targets.csv \
+  --state-dir /srv/company-monitor/state \
+  --name-column 'Company Name' \
+  --url-column 'Website URL' \
+  --metadata-column 'Source List' \
+  --api-key-file ~/.config/firecrawl/api-key
+```
+
+Use that command as an agent's pre-script and include
+`{{pre_script_output}}` in the prompt. Empty output means no changed pages, so
+Boring Orchestrator skips the model call. After successful processing, the
+consumer acknowledges the shared batch ID:
+
+```bash
+python3 scripts/website_change_events.py ack \
+  --state-dir /srv/company-monitor/state \
+  --batch-id '<batchId>'
+```
+
+Inspect queue state without fetching anything:
+
+```bash
+python3 scripts/website_change_events.py status \
+  --state-dir /srv/company-monitor/state
+```
+
+For offline validation, pass `--fixture response.json` to `prepare`. A fixture
+is either an array of Firecrawl page results or an object with a `data` array;
+no API credential or network call is used.
+
+### Nessie Trigger Radar
+
+The committed Trigger Radar configuration uses this producer as its pre-script,
+then launches Opus only when at least one changed or removed page is emitted.
+Opus interprets those events and acknowledges the pending batch only after its
+report is delivered. It no longer receives or researches the complete roster.
+
+On Matrix, store the Firecrawl service credential outside the repository and
+then apply the safe-disabled configuration:
+
+```bash
+mkdir -p ~/.config/firecrawl
+chmod 700 ~/.config/firecrawl
+# Write the key to ~/.config/firecrawl/api-key, then:
+chmod 600 ~/.config/firecrawl/api-key
+cd ~/boring-orchestrator
+python3 scripts/upsert-trigger-radar-agent.py
+```
+
+The upsert deliberately leaves the agent disabled. Next, build the per-company
+source registry so the producer watches more than each homepage:
+
+```bash
+scripts/discover-trigger-radar-sources.sh            # ~1 Firecrawl map credit per company
+scripts/discover-trigger-radar-sources.sh --refresh  # re-map instead of using the cache
+```
+
+`scripts/discover_company_sources.py` maps each company site once and writes
+`source-registry.csv` with one row per (company, source type, URL) for the
+homepage, careers page or external job board, newsroom, blog, and changelog.
+Classification is deterministic (path regexes, index pages preferred), results
+are cached per company, and companies whose site cannot be mapped are listed in
+`source-registry-errors.json` rather than guessed. When the registry exists,
+`scripts/prepare-trigger-radar-events.sh` monitors it instead of the raw roster
+and tags every event with its `Source Type`.
+
+Then establish the first baseline with `scripts/prepare-trigger-radar-events.sh`,
+verify that it emits no events, and only then enable the agent in Boring
+Orchestrator. The current Ashton roster
+contains 525 rows: 444 have valid unique website URLs and 81 need explicit URL
+curation before the producer can monitor them. It will not guess missing sites.
 
 ## Notes
 

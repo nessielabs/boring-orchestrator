@@ -1,7 +1,24 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createAgent, deleteAgent, getRun } from "./db.js";
-import { executeAgent } from "./executor.js";
+import { createAgent, deleteAgent, getRun, type Agent } from "./db.js";
+import { buildProviderInvocation, executeAgent } from "./executor.js";
+
+test("Claude prompts are streamed over stdin instead of argv", () => {
+  const prompt = "x".repeat(1024 * 1024);
+  const agent = {
+    name: "large-prompt-test",
+    provider: "claude",
+    model: "claude-haiku-4-5",
+    skip_permissions: 0,
+  } as Agent;
+
+  const invocation = buildProviderInvocation(agent, prompt);
+
+  assert.equal(invocation.command, "claude");
+  assert.equal(invocation.stdin, prompt);
+  assert.equal(invocation.args.includes(prompt), false);
+  assert.equal(invocation.args[0], "-p");
+});
 
 test("script-only agents record pre-script output without a provider run", (t) => {
   const agent = createAgent({
