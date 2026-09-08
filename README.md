@@ -119,6 +119,11 @@ results. Token estimates use bytes / 4 and are approximate, not a model token
 guarantee. Override with `--max-companies`, `--max-events`, and
 `--max-input-bytes` on the prepare command.
 
+Selection uses first-fit company groups in their queued insertion order, not
+best-fit packing. An earlier large group can defer several smaller groups to
+the next batch. This preserves the existing queue order rather than prioritizing
+small groups for maximum packing; all deferred groups remain queued.
+
 Collection saves the complete matching snapshot in a durable backlog. Each run
 selects one batch; acknowledgement marks only those events seen. Further runs
 drain the backlog without refetching for 24 hours. After that, collection merges
