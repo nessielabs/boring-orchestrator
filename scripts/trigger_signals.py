@@ -635,6 +635,8 @@ def run_feeds(args: argparse.Namespace) -> int:
 
 
 def finish(args: argparse.Namespace, events: list[dict[str, Any]], stats: dict[str, Any], errors: dict[str, str]) -> int:
+    # Standalone collector deduplication only. The daily durable queue passes
+    # --dry-run --replay and owns its own seen state, advanced only after ack.
     store = SeenStore(args.state_dir / f"seen-{args.command}.json")
     fresh = store.filter_new(events) if not args.replay else events
     fresh.sort(key=lambda e: (-e["evidence"].get("score", 0), e["company"]["name"]))
