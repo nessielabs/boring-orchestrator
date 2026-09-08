@@ -40,6 +40,15 @@ qualification. A careers-page fallback has no verified posting date; a feed
 publication date is not proof of a new buying need. Do not claim either is a
 fresh hiring event without verifying the original source.
 
+Separate product fit from buying evidence. Existing internal practices, an
+in-house build story, or an open-source roadmap without an unmet need is
+research-only, even when it closely resembles Nessie. A qualified buyer signal
+requires explicit evidence of an unmet internal need, a rollout or procurement
+initiative, or hiring ownership to establish a missing internal capability.
+Do not count research-only companies in the matched-company total. Mention them
+separately only if they are useful context. A report with zero verified buyer
+signals is a successful outcome, not a reason to relax these criteria.
+
 Only after an event produces a real signal, perform literal/exact Nessie searches
 for its company name, domain, and named person in the Active CRM and Cold archive.
 Do not read either history wholesale and do not write to them.
