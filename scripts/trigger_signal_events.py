@@ -121,7 +121,9 @@ def main(argv=None):
     sub = parser.add_subparsers(dest="command", required=True)
     for name, handler in (("prepare", prepare), ("preview", inspect_queue),
                           ("ack", acknowledge), ("status", inspect_queue)):
-        child = sub.add_parser(name)
+        help_text = ("May fetch remote sources and persist candidates; does not invoke Opus"
+                     if name == "preview" else None)
+        child = sub.add_parser(name, help=help_text, description=help_text)
         child.add_argument("--state-dir", type=Path, required=True)
         child.set_defaults(handler=handler)
         if name != "ack":
