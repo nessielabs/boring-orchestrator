@@ -99,45 +99,49 @@ no API credential or network call is used.
 
 ### Nessie Trigger Radar
 
-The committed Trigger Radar configuration uses this producer as its pre-script,
-then launches Opus only when at least one changed or removed page is emitted.
-Opus interprets those events and acknowledges the pending batch only after its
-report is delivered. It no longer receives or researches the complete roster.
+The committed Trigger Radar configuration collects ATS postings and matching RSS
+articles from the discovered source registry. Firecrawl resolves careers pages
+that do not already link directly to supported ATS boards. A registry is
+required; homepage-only fallback is disabled. Keyword matches are candidates
+for Opus to verify, not qualified buyers.
 
-On Matrix, store the Firecrawl service credential outside the repository and
-then apply the safe-disabled configuration:
+`scripts/trigger_signal_events.py` owns an atomic pending batch. It runs the
+standalone collectors without advancing their seen state, persists events before
+emitting them, and replays the same batch until its exact ID is acknowledged.
+Only acknowledgement advances deduplication. Its default state directory is
+`/home/matrix/trigger-radar/state/signal-events`; the old website-change queue is
+separate and must not be consumed as a signal batch.
+
+After deploying this branch on Matrix, run the upsert to install the configuration
+in its disabled state:
 
 ```bash
-mkdir -p ~/.config/firecrawl
-chmod 700 ~/.config/firecrawl
-# Write the key to ~/.config/firecrawl/api-key, then:
-chmod 600 ~/.config/firecrawl/api-key
-cd ~/boring-orchestrator
 python3 scripts/upsert-trigger-radar-agent.py
 ```
 
-The upsert deliberately leaves the agent disabled. Next, build the per-company
-source registry so the producer watches more than each homepage:
+Build or refresh the registry with `scripts/discover-trigger-radar-sources.sh`.
+Keep the registry, API key, caches, and state outside git. For a bounded manual
+trial, select a small real subset into a separate registry and state directory:
 
 ```bash
-scripts/discover-trigger-radar-sources.sh            # ~1 Firecrawl map credit per company
-scripts/discover-trigger-radar-sources.sh --refresh  # re-map instead of using the cache
+BORING_ORCHESTRATOR_DIR="$PWD" \
+TRIGGER_RADAR_REGISTRY=/srv/trigger-trial/registry.csv \
+TRIGGER_RADAR_STATE_DIR=/srv/trigger-trial/state \
+FIRECRAWL_API_KEY_FILE=/srv/secrets/firecrawl-key \
+  bash scripts/prepare-trigger-radar-events.sh --limit 3 --timeout-seconds 240
 ```
 
-`scripts/discover_company_sources.py` maps each company site once and writes
-`source-registry.csv` with one row per (company, source type, URL) for the
-homepage, careers page or external job board, newsroom, blog, and changelog.
-Classification is deterministic (path regexes, index pages preferred), results
-are cached per company, and companies whose site cannot be mapped are listed in
-`source-registry-errors.json` rather than guessed. When the registry exists,
-`scripts/prepare-trigger-radar-events.sh` monitors it instead of the raw roster
-and tags every event with its `Source Type`.
+`--limit` bounds each producer's targets. Repeating the command while a batch is
+pending must emit identical JSONL without fetching again. Save and inspect the
+consumer's report before acknowledging that trial batch with
+`trigger_signal_events.py ack --state-dir /srv/trigger-trial/state --batch-id ID`.
+A failed consumer must leave the batch pending. Do not enable the scheduled
+agent until a real-source trial and delivery verification have succeeded.
 
-Then establish the first baseline with `scripts/prepare-trigger-radar-events.sh`,
-verify that it emits no events, and only then enable the agent in Boring
-Orchestrator. The current Ashton roster
-contains 525 rows: 444 have valid unique website URLs and 81 need explicit URL
-curation before the producer can monitor them. It will not guess missing sites.
+The standalone `trigger_signals.py github` collector is experimental and is not
+included in the daily consumer. Public config files and recent repository pushes
+are not proof of a fresh internal buying need; org attribution and pagination
+need additional validation before that source can be enabled.
 
 ## Notes
 
