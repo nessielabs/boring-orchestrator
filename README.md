@@ -159,6 +159,11 @@ the last collection time, pending/backlog counts, next-batch size, remaining wor
 and oversized companies. Pass the same limit overrides to preview/status and
 prepare when comparing the next batch. Use a separate state directory for trials.
 
+Backlog byte counts measure stored events without a `batchId`. Pending and
+next-batch counts include that delivery field, so their byte totals include
+additional per-event overhead. The byte limit applies to the latter serialized
+delivery size, including the batch ID.
+
 After deploying this branch on Matrix, run the upsert to install the configuration
 in its disabled state:
 
