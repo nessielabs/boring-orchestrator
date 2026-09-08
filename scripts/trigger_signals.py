@@ -625,8 +625,7 @@ def run_feeds(args: argparse.Namespace) -> int:
                     item["url"] or item["title"],
                 )
             )
-            if score >= MIN_SCORE:
-                stats["matchedPosts"] += 1
+            stats["matchedPosts"] += 1
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     cache_path.write_text(json.dumps(feed_cache, indent=0), encoding="utf-8")
     return finish(args, events, stats, {})
