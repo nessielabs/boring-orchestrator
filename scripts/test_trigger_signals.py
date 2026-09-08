@@ -44,6 +44,14 @@ class TriggerSignalsTest(unittest.TestCase):
             ts.gh_json(["api", "search/code"])
             sleep.assert_called_once_with(6.5)
 
+    def test_feed_emits_only_matching_posts(self):
+        company = {"id": "c", "name": "Acme", "homepage": "https://acme.example", "metadata": {}, "urls": {"blog": "https://acme.example/blog"}}
+        posts = [{"title": title, "text": title, "url": "https://acme.example/" + str(i), "publishedAt": ts.utcnow().isoformat()} for i, title in enumerate(["Office opening", "How we use Claude Code"])]
+        with TemporaryDirectory() as tmp, patch.object(ts, "read_registry", return_value={"c": company}), patch.object(ts, "discover_feed", return_value=("https://acme.example/feed", b"")), patch.object(ts, "parse_feed", return_value=posts), patch.object(ts, "finish", return_value=0) as finish:
+            ts.run_feeds(Namespace(registry=Path(tmp), state_dir=Path(tmp), since_days=14, limit=1, workers=1, refresh=False))
+            events = finish.call_args.args[1]
+            self.assertEqual([e["evidence"]["title"] for e in events], ["How we use Claude Code"])
+
     def test_parses_rss_and_atom(self):
         rss = b'<rss><channel><item><title>How we use Claude Code</title><link>https://a.example/p</link><pubDate>Tue, 01 Sep 2026 10:00:00 GMT</pubDate><description>MCP everywhere</description></item></channel></rss>'
         atom = b'<feed xmlns="http://www.w3.org/2005/Atom"><entry><title>Hello</title><link href="https://a.example/h"/><published>2026-09-01T10:00:00Z</published><summary>x</summary></entry></feed>'

@@ -178,7 +178,7 @@ class SeenStore:
 
 
 def firecrawl_scrape(api_key: str, url: str, formats: Sequence[Any]) -> dict[str, Any]:
-    payload = json.dumps({"url": url, "formats": list(formats), "onlyMainContent": False, "timeout": 45_000}).encode()
+    payload = json.dumps({"url": url, "formats": list(formats), "onlyMainContent": True, "timeout": 45_000}).encode()
     for attempt in range(4):
         status, body = http_get(
             "https://api.firecrawl.dev/v2/scrape",
@@ -302,6 +302,9 @@ def run_ats(args: argparse.Namespace) -> int:
             except (OSError, json.JSONDecodeError):
                 pass
         careers_url = company["urls"]["careers"]
+        direct_ats = detect_ats([careers_url], "")
+        if direct_ats:
+            return company, {"careersUrl": careers_url, "ats": direct_ats}, None
         try:
             page = firecrawl_scrape(api_key, careers_url, ["markdown", "links", "html"])
         except MonitorError as error:
@@ -597,6 +600,8 @@ def run_feeds(args: argparse.Namespace) -> int:
                 continue
             stats["recentPosts"] += 1
             score, hits = score_text(f"{item['title']}\n{item['text']}")
+            if score < MIN_SCORE:
+                continue
             events.append(
                 make_event(
                     f"{source_type}.post_published",
@@ -627,13 +632,14 @@ def finish(args: argparse.Namespace, events: list[dict[str, Any]], stats: dict[s
     finally:
         if args.output:
             out.close()
-    if not args.dry_run:
+    if not args.dry_run and not errors:
         store.commit(fresh)
     stats["events"] = len(fresh)
     stats["suppressedSeen"] = len(events) - len(fresh)
     print(json.dumps(stats, separators=(",", ":")), file=sys.stderr)
     if errors:
         print(json.dumps({"errors": errors}, ensure_ascii=False)[:4000], file=sys.stderr)
+        return 1
     return 0
 
 
