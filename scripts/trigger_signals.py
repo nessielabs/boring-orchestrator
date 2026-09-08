@@ -212,10 +212,23 @@ def detect_ats(links: Iterable[str], html_or_md: str) -> tuple[str, str] | None:
     return None
 
 
+def ats_get(url: str) -> tuple[int, bytes]:
+    """Retry transient board failures before failing the collection closed."""
+    import time
+
+    for attempt in range(4):
+        status, body = http_get(url)
+        if status not in (0, 429) and status < 500:
+            return status, body
+        if attempt < 3:
+            time.sleep(5 * (attempt + 1))
+    return status, body
+
+
 def fetch_ats_postings(provider: str, slug: str) -> list[dict[str, Any]]:
     postings: list[dict[str, Any]] = []
     if provider == "greenhouse":
-        status, body = http_get(f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs?content=true")
+        status, body = ats_get(f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs?content=true")
         if status != 200:
             raise MonitorError(f"greenhouse {slug} HTTP {status}")
         for job in json.loads(body).get("jobs", []):
@@ -231,7 +244,7 @@ def fetch_ats_postings(provider: str, slug: str) -> list[dict[str, Any]]:
                 }
             )
     elif provider == "lever":
-        status, body = http_get(f"https://api.lever.co/v0/postings/{slug}?mode=json")
+        status, body = ats_get(f"https://api.lever.co/v0/postings/{slug}?mode=json")
         if status != 200:
             raise MonitorError(f"lever {slug} HTTP {status}")
         for job in json.loads(body):
@@ -248,7 +261,7 @@ def fetch_ats_postings(provider: str, slug: str) -> list[dict[str, Any]]:
                 }
             )
     elif provider == "ashby":
-        status, body = http_get(f"https://api.ashbyhq.com/posting-api/job-board/{slug}?includeCompensation=false")
+        status, body = ats_get(f"https://api.ashbyhq.com/posting-api/job-board/{slug}?includeCompensation=false")
         if status != 200:
             raise MonitorError(f"ashby {slug} HTTP {status}")
         for job in json.loads(body).get("jobs", []):

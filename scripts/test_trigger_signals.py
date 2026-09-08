@@ -52,6 +52,21 @@ class TriggerSignalsTest(unittest.TestCase):
             events = finish.call_args.args[1]
             self.assertEqual([e["evidence"]["title"] for e in events], ["How we use Claude Code"])
 
+    def test_ats_retries_transient_failures_but_not_permanent_errors(self):
+        with patch.object(ts, "http_get", side_effect=[(500, b"down"), (429, b"slow"), (200, b'{"jobs":[]}')]) as get, patch("time.sleep") as sleep:
+            self.assertEqual(ts.fetch_ats_postings("ashby", "acme"), [])
+            self.assertEqual(get.call_count, 3)
+            self.assertEqual(sleep.call_count, 2)
+        with patch.object(ts, "http_get", return_value=(404, b"missing")) as get, patch("time.sleep") as sleep:
+            with self.assertRaises(ts.MonitorError):
+                ts.fetch_ats_postings("ashby", "acme")
+            self.assertEqual(get.call_count, 1)
+            sleep.assert_not_called()
+        with patch.object(ts, "http_get", return_value=(500, b"down")) as get, patch("time.sleep"):
+            with self.assertRaises(ts.MonitorError):
+                ts.fetch_ats_postings("ashby", "acme")
+            self.assertEqual(get.call_count, 4)
+
     def test_parses_rss_and_atom(self):
         rss = b'<rss><channel><item><title>How we use Claude Code</title><link>https://a.example/p</link><pubDate>Tue, 01 Sep 2026 10:00:00 GMT</pubDate><description>MCP everywhere</description></item></channel></rss>'
         atom = b'<feed xmlns="http://www.w3.org/2005/Atom"><entry><title>Hello</title><link href="https://a.example/h"/><published>2026-09-01T10:00:00Z</published><summary>x</summary></entry></feed>'
