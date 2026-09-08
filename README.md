@@ -33,7 +33,9 @@ PORT=3000 npm start
 - Cron agents are scheduled with `node-cron`.
 - Manual agents can be triggered from the dashboard.
 - Webhook agents can be triggered with `POST /webhook` or `POST /webhook/:path`.
-- Each run executes `claude -p --output-format stream-json` and stores the streamed transcript.
+- Each run streams its prompt to `claude -p --output-format stream-json` over
+  stdin and stores the streamed transcript. Using stdin keeps large pre-script
+  payloads out of the process argument list.
 - Agents can run on Claude or Codex. Claude uses `claude -p`; Codex uses `codex exec --json --skip-git-repo-check`.
 - Codex agents can set a per-agent reasoning effort from `none` through `max`; `xhigh` is labeled "Extra high" in the dashboard.
 - The "Dangerously skip permissions" checkbox maps to `--dangerously-skip-permissions` for Claude and `--dangerously-bypass-approvals-and-sandbox` for Codex.
@@ -43,6 +45,106 @@ PORT=3000 npm start
 - Script-only agents require a non-empty pre-script, allow an empty prompt,
   record non-empty pre-script output as a successful run, and never launch
   Claude or Codex.
+
+## Deterministic Website Change Events
+
+`scripts/website_change_events.py` turns a CSV of company websites into compact
+JSONL change events before an agent is launched. It uses Firecrawl batch scrape
+with line-level change tracking, silently establishes first-scrape baselines,
+and emits only `changed` or `removed` pages. No LLM participates in target
+selection, fetching, diffing, event identity, or retry behavior.
+Each page has a bounded scrape timeout so one unresponsive site cannot leave a
+multi-site batch running indefinitely.
+
+The producer keeps one pending batch in a private runtime directory. Re-running
+`prepare` returns that batch byte-for-byte without calling Firecrawl again.
+After the consumer finishes its work and delivers its result, it must
+acknowledge the exact `batchId`; failed consumers therefore get the same events
+on their next run instead of losing them.
+
+Keep the target CSV, API key, and state outside this repository. For example:
+
+```bash
+chmod 600 ~/.config/firecrawl/api-key
+python3 scripts/website_change_events.py prepare \
+  --input /srv/company-monitor/targets.csv \
+  --state-dir /srv/company-monitor/state \
+  --name-column 'Company Name' \
+  --url-column 'Website URL' \
+  --metadata-column 'Source List' \
+  --api-key-file ~/.config/firecrawl/api-key
+```
+
+Use that command as an agent's pre-script and include
+`{{pre_script_output}}` in the prompt. Empty output means no changed pages, so
+Boring Orchestrator skips the model call. After successful processing, the
+consumer acknowledges the shared batch ID:
+
+```bash
+python3 scripts/website_change_events.py ack \
+  --state-dir /srv/company-monitor/state \
+  --batch-id '<batchId>'
+```
+
+Inspect queue state without fetching anything:
+
+```bash
+python3 scripts/website_change_events.py status \
+  --state-dir /srv/company-monitor/state
+```
+
+For offline validation, pass `--fixture response.json` to `prepare`. A fixture
+is either an array of Firecrawl page results or an object with a `data` array;
+no API credential or network call is used.
+
+### Nessie Trigger Radar
+
+The committed Trigger Radar configuration collects ATS postings and matching RSS
+articles from the discovered source registry. Firecrawl resolves careers pages
+that do not already link directly to supported ATS boards. A registry is
+required; homepage-only fallback is disabled. Keyword matches are candidates
+for Opus to verify, not qualified buyers.
+
+`scripts/trigger_signal_events.py` owns an atomic pending batch. It runs the
+standalone collectors without advancing their seen state, persists events before
+emitting them, and replays the same batch until its exact ID is acknowledged.
+Only acknowledgement advances deduplication. Its default state directory is
+`/home/matrix/trigger-radar/state/signal-events`; the old website-change queue is
+separate and must not be consumed as a signal batch.
+
+After deploying this branch on Matrix, run the upsert to install the configuration
+in its disabled state:
+
+```bash
+python3 scripts/upsert-trigger-radar-agent.py
+```
+
+Build or refresh the registry with `scripts/discover-trigger-radar-sources.sh`.
+Keep the registry, API key, caches, and state outside git. For a bounded manual
+trial, select a small real subset into a separate registry and state directory:
+
+```bash
+BORING_ORCHESTRATOR_DIR="$PWD" \
+TRIGGER_RADAR_REGISTRY=/srv/trigger-trial/registry.csv \
+TRIGGER_RADAR_STATE_DIR=/srv/trigger-trial/state \
+FIRECRAWL_API_KEY_FILE=/srv/secrets/firecrawl-key \
+  bash scripts/prepare-trigger-radar-events.sh --limit 3 --timeout-seconds 240
+```
+
+`--limit` bounds each producer's companies; feeds include all source pages for each selected company. Repeating the command while a batch is
+pending must emit identical JSONL without fetching again. Save and inspect the
+consumer's report before acknowledging that trial batch with
+`trigger_signal_events.py ack --state-dir /srv/trigger-trial/state --batch-id ID`.
+A failed consumer must leave the batch pending. Delivery is at-least-once:
+if Slack delivery succeeds but acknowledgement fails, an operator must reconcile
+the delivered batch before retrying, or the report can be sent again. The
+consumer reports that condition with the batch ID. Do not enable the scheduled
+agent until a real-source trial and delivery verification have succeeded.
+
+The standalone `trigger_signals.py github` collector is experimental and is not
+included in the daily consumer. Public config files and recent repository pushes
+are not proof of a fresh internal buying need; org attribution and pagination
+need additional validation before that source can be enabled.
 
 ## Notes
 

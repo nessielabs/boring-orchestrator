@@ -1,0 +1,87 @@
+import unittest
+from unittest.mock import patch, Mock
+from argparse import Namespace
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+from scripts import trigger_signals as ts
+
+
+class TriggerSignalsTest(unittest.TestCase):
+    def test_scores_agent_tooling_language(self):
+        score, hits = ts.score_text("Own our internal AI platform: MCP servers, CLAUDE.md standards, everyone uses Claude Code.")
+        self.assertGreaterEqual(score, ts.MIN_SCORE)
+        self.assertIn("claude-code", hits)
+        self.assertIn("mcp", hits)
+        self.assertIn("agents-md", hits)
+
+    def test_ignores_unrelated_postings(self):
+        score, hits = ts.score_text("Account Executive: manage a pipeline of enterprise customers and exceed quota.")
+        self.assertEqual(score, 0)
+        self.assertEqual(hits, [])
+
+    def test_cursor_position_is_not_cursor_editor(self):
+        self.assertEqual(ts.score_text("update the cursor position in the canvas")[0], 0)
+
+    def test_detects_ats_from_links_or_html(self):
+        self.assertEqual(ts.detect_ats(["https://jobs.ashbyhq.com/vendelux"], ""), ("ashby", "vendelux"))
+        self.assertEqual(ts.detect_ats([], '<iframe src="https://boards.greenhouse.io/embed/job_board?for=acme">'), ("greenhouse", "acme"))
+        self.assertEqual(ts.detect_ats(["https://jobs.lever.co/acme/123"], ""), ("lever", "acme"))
+        self.assertIsNone(ts.detect_ats(["https://acme.example/careers"], ""))
+
+    def test_github_queries_each_config_and_uses_code_search_throttle(self):
+        company = {"id": "c", "name": "Acme", "homepage": "https://acme.example", "metadata": {}, "urls": {}}
+        queries = []
+        def github(args):
+            queries.append(args)
+            return []
+        with TemporaryDirectory() as tmp, patch.object(ts, "read_registry", return_value={"c": company}), patch.object(ts, "lookup_org_by_domain", return_value="acme"), patch.object(ts, "gh_json", side_effect=github), patch.object(ts, "finish", return_value=0):
+            ts.run_github(Namespace(registry=Path(tmp), state_dir=Path(tmp), map_cache_dir=Path(tmp), since_days=14, limit=1))
+        self.assertEqual(len(queries), 4)
+        for args in queries:
+            self.assertNotIn(" OR ", " ".join(args))
+        with patch.object(ts.subprocess, "run", return_value=Mock(returncode=0, stdout="[]")), patch("time.sleep") as sleep:
+            ts.gh_json(["api", "search/code"])
+            sleep.assert_called_once_with(6.5)
+
+    def test_feed_emits_only_matching_posts(self):
+        company = {"id": "c", "name": "Acme", "homepage": "https://acme.example", "metadata": {}, "urls": {"blog": "https://acme.example/blog"}}
+        posts = [{"title": title, "text": title, "url": "https://acme.example/" + str(i), "publishedAt": ts.utcnow().isoformat()} for i, title in enumerate(["Office opening", "How we use Claude Code"])]
+        with TemporaryDirectory() as tmp, patch.object(ts, "read_registry", return_value={"c": company}), patch.object(ts, "discover_feed", return_value=("https://acme.example/feed", b"")), patch.object(ts, "parse_feed", return_value=posts), patch.object(ts, "finish", return_value=0) as finish:
+            ts.run_feeds(Namespace(registry=Path(tmp), state_dir=Path(tmp), since_days=14, limit=1, workers=1, refresh=False))
+            events = finish.call_args.args[1]
+            self.assertEqual([e["evidence"]["title"] for e in events], ["How we use Claude Code"])
+
+    def test_ats_retries_transient_failures_but_not_permanent_errors(self):
+        with patch.object(ts, "http_get", side_effect=[(500, b"down"), (429, b"slow"), (200, b'{"jobs":[]}')]) as get, patch("time.sleep") as sleep:
+            self.assertEqual(ts.fetch_ats_postings("ashby", "acme"), [])
+            self.assertEqual(get.call_count, 3)
+            self.assertEqual(sleep.call_count, 2)
+        with patch.object(ts, "http_get", return_value=(404, b"missing")) as get, patch("time.sleep") as sleep:
+            with self.assertRaises(ts.MonitorError):
+                ts.fetch_ats_postings("ashby", "acme")
+            self.assertEqual(get.call_count, 1)
+            sleep.assert_not_called()
+        with patch.object(ts, "http_get", return_value=(500, b"down")) as get, patch("time.sleep"):
+            with self.assertRaises(ts.MonitorError):
+                ts.fetch_ats_postings("ashby", "acme")
+            self.assertEqual(get.call_count, 4)
+
+    def test_feed_limit_counts_companies_instead_of_source_pages(self):
+        companies = {name: {"id": name, "name": name, "homepage": "https://example.com", "metadata": {}, "urls": {kind: f"https://{name}.example/{kind}" for kind in ("blog", "news", "changelog")}} for name in ("one", "two", "three")}
+        with TemporaryDirectory() as tmp, patch.object(ts, "read_registry", return_value=companies), patch.object(ts, "discover_feed", return_value=None) as discover, patch.object(ts, "finish", return_value=0) as finish:
+            ts.run_feeds(Namespace(registry=Path(tmp), state_dir=Path(tmp), since_days=14, limit=2, workers=1, refresh=False))
+            self.assertEqual(discover.call_count, 6)
+            self.assertEqual(finish.call_args.args[2]["companies"], 2)
+            self.assertFalse(any("three.example" in call.args[0] for call in discover.call_args_list))
+
+    def test_parses_rss_and_atom(self):
+        rss = b'<rss><channel><item><title>How we use Claude Code</title><link>https://a.example/p</link><pubDate>Tue, 01 Sep 2026 10:00:00 GMT</pubDate><description>MCP everywhere</description></item></channel></rss>'
+        atom = b'<feed xmlns="http://www.w3.org/2005/Atom"><entry><title>Hello</title><link href="https://a.example/h"/><published>2026-09-01T10:00:00Z</published><summary>x</summary></entry></feed>'
+        self.assertEqual(ts.parse_feed(rss)[0]["url"], "https://a.example/p")
+        self.assertEqual(ts.parse_feed(atom)[0]["url"], "https://a.example/h")
+        self.assertIsNotNone(ts.parse_when(ts.parse_feed(rss)[0]["publishedAt"]))
+
+
+if __name__ == "__main__":
+    unittest.main()
