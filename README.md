@@ -26,7 +26,8 @@ PORT=3000 npm start
 
 ## How It Works
 
-- Agents are stored in local SQLite at `boring-orchestrator.db`. Set
+- Agents are stored in SQLite under `$XDG_STATE_HOME/boring-orchestrator/`
+  (default `~/.local/state/boring-orchestrator/`). Set
   `BORING_ORCHESTRATOR_DATABASE_PATH` to use a different database; the test
   suite uses `:memory:` so it cannot modify the production database.
 - A starter `dummy agent` is seeded on first run. Every 30 minutes it captures the current time with `date` and asks Claude Haiku to say hello with that timestamp.
@@ -56,6 +57,9 @@ executor, dashboard, and database schema without bundling a particular organizat
 Prompts, schedules, run history, credentials, logs, and generated queues are runtime
 data. Keep them outside the source checkout and outside version control. Set
 `BORING_ORCHESTRATOR_DATABASE_PATH` to the deployment's private SQLite file.
+If a legacy database exists in the checkout and no explicit path is set, startup
+refuses to create an empty replacement. Stop the application, back up and move
+the database, set the explicit path, then restart and verify existing history.
 
 This is a trusted local tool. Agent prompts and pre-scripts can execute commands
 in your environment. Do not expose it publicly without your own access control.
