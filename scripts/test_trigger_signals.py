@@ -67,6 +67,14 @@ class TriggerSignalsTest(unittest.TestCase):
                 ts.fetch_ats_postings("ashby", "acme")
             self.assertEqual(get.call_count, 4)
 
+    def test_feed_limit_counts_companies_instead_of_source_pages(self):
+        companies = {name: {"id": name, "name": name, "homepage": "https://example.com", "metadata": {}, "urls": {kind: f"https://{name}.example/{kind}" for kind in ("blog", "news", "changelog")}} for name in ("one", "two", "three")}
+        with TemporaryDirectory() as tmp, patch.object(ts, "read_registry", return_value=companies), patch.object(ts, "discover_feed", return_value=None) as discover, patch.object(ts, "finish", return_value=0) as finish:
+            ts.run_feeds(Namespace(registry=Path(tmp), state_dir=Path(tmp), since_days=14, limit=2, workers=1, refresh=False))
+            self.assertEqual(discover.call_count, 6)
+            self.assertEqual(finish.call_args.args[2]["companies"], 2)
+            self.assertFalse(any("three.example" in call.args[0] for call in discover.call_args_list))
+
     def test_parses_rss_and_atom(self):
         rss = b'<rss><channel><item><title>How we use Claude Code</title><link>https://a.example/p</link><pubDate>Tue, 01 Sep 2026 10:00:00 GMT</pubDate><description>MCP everywhere</description></item></channel></rss>'
         atom = b'<feed xmlns="http://www.w3.org/2005/Atom"><entry><title>Hello</title><link href="https://a.example/h"/><published>2026-09-01T10:00:00Z</published><summary>x</summary></entry></feed>'

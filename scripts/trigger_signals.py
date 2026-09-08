@@ -575,15 +575,16 @@ def run_feeds(args: argparse.Namespace) -> int:
         except (OSError, json.JSONDecodeError):
             feed_cache = {}
     targets: list[tuple[dict[str, Any], str, str]] = []
-    for company in companies.values():
+    feed_companies = [c for c in companies.values() if any(c["urls"].get(t) for t in ("blog", "news", "changelog"))]
+    if args.limit:
+        feed_companies = feed_companies[:args.limit]
+    for company in feed_companies:
         for source_type in ("blog", "news", "changelog"):
             url = company["urls"].get(source_type)
             if url:
                 targets.append((company, source_type, url))
-    if args.limit:
-        targets = targets[: args.limit]
     events: list[dict[str, Any]] = []
-    stats = {"pages": len(targets), "feedsFound": 0, "recentPosts": 0, "matchedPosts": 0}
+    stats = {"companies": len(feed_companies), "pages": len(targets), "feedsFound": 0, "recentPosts": 0, "matchedPosts": 0}
 
     def probe(target: tuple[dict[str, Any], str, str]) -> tuple[tuple[dict[str, Any], str, str], str | None, list[dict[str, Any]]]:
         company, source_type, url = target

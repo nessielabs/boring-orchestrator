@@ -131,7 +131,7 @@ FIRECRAWL_API_KEY_FILE=/srv/secrets/firecrawl-key \
   bash scripts/prepare-trigger-radar-events.sh --limit 3 --timeout-seconds 240
 ```
 
-`--limit` bounds each producer's targets. Repeating the command while a batch is
+`--limit` bounds each producer's companies; feeds include all source pages for each selected company. Repeating the command while a batch is
 pending must emit identical JSONL without fetching again. Save and inspect the
 consumer's report before acknowledging that trial batch with
 `trigger_signal_events.py ack --state-dir /srv/trigger-trial/state --batch-id ID`.
