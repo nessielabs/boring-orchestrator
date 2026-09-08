@@ -9,9 +9,11 @@ import uuid
 from pathlib import Path
 
 try:
-    from scripts.website_change_events import MonitorError, StateStore, emit, status
+    from scripts.website_change_events import MonitorError, StateStore, emit
+    from scripts.signal_batches import fits, select_batch, summary
 except ImportError:
-    from website_change_events import MonitorError, StateStore, emit, status
+    from website_change_events import MonitorError, StateStore, emit
+    from signal_batches import fits, select_batch, summary
 
 
 def collect(args):
@@ -39,20 +41,44 @@ def collect(args):
     return sorted(events.values(), key=lambda e: e["eventId"])
 
 
+def fill_backlog(state, store, args):
+    # Drain a durable collection snapshot before fetching again. Queued events
+    # survive across runs even if their publication date leaves the lookback.
+    if not state.get("pending") and not state.get("backlog"):
+        seen = set(state.get("seen", []))
+        state["backlog"] = [e for e in collect(args) if e["eventId"] not in seen]
+        store.save(state)
+
+
+def inspect_queue(args):
+    store = StateStore(args.state_dir)
+    with store.locked():
+        state = store.load()
+        if args.command == "preview":
+            fill_backlog(state, store, args)
+        print(json.dumps(summary(state, args), sort_keys=True))
+    return 0
+
+
 def prepare(args):
     store = StateStore(args.state_dir)
     with store.locked():
         state = store.load()
         pending = state.get("pending")
         if pending:
+            if not fits(pending["events"], args):
+                raise MonitorError("pending batch exceeds limits; retained unchanged. Inspect status and reconcile prior delivery before changing limits")
             emit(pending["events"])
             return 0
-        seen = set(state.get("seen", []))
-        events = [e for e in collect(args) if e["eventId"] not in seen]
+        fill_backlog(state, store, args)
+        batch_id = str(uuid.uuid4())
+        events, remaining, blocked = select_batch(state["backlog"], args, batch_id)
+        if blocked:
+            print(json.dumps({"oversizedCompanies": blocked}), file=sys.stderr)
+        if not events and remaining:
+            raise MonitorError("all queued companies exceed batch limits; events retained. Inspect status")
         if events:
-            batch_id = str(uuid.uuid4())
-            for event in events:
-                event["batchId"] = batch_id
+            state["backlog"] = remaining
             state["pending"] = {"batchId": batch_id, "events": events}
             store.save(state)
         emit(events)
@@ -74,16 +100,28 @@ def acknowledge(args):
     return 0
 
 
+def positive_int(value):
+    number = int(value)
+    if number <= 0:
+        raise argparse.ArgumentTypeError("must be positive")
+    return number
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
-    for name, handler in (("prepare", prepare), ("ack", acknowledge), ("status", status)):
+    for name, handler in (("prepare", prepare), ("preview", inspect_queue),
+                          ("ack", acknowledge), ("status", inspect_queue)):
         child = sub.add_parser(name)
         child.add_argument("--state-dir", type=Path, required=True)
-        child.set_defaults(handler=handler)
+        child.set_defaults(handler=handler, command=name)
+        if name != "ack":
+            child.add_argument("--max-companies", type=positive_int, default=10)
+            child.add_argument("--max-events", type=positive_int, default=40)
+            child.add_argument("--max-input-bytes", type=positive_int, default=32_000)
         if name == "ack":
             child.add_argument("--batch-id", required=True)
-        if name == "prepare":
+        if name in ("prepare", "preview"):
             child.add_argument("--registry", type=Path, required=True)
             child.add_argument("--api-key-file", type=Path)
             child.add_argument("--producers", nargs="+", choices=("ats", "feeds"), default=["ats", "feeds"])
