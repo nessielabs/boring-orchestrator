@@ -62,7 +62,7 @@ Return every genuine match in this batch in one strongest-first list. Start with
 
 `Nessie Buyer Radar - YYYY-MM-DD - N matched companies`
 
-Then state the batch ID and the number of candidate companies assessed. This is
+Then state the `batchId` field from any event and the number of candidate companies assessed. This is
 a batch report, not a claim that the full registry has been assessed today.
 
 For each match include: the company and verified relevant person; direct source
