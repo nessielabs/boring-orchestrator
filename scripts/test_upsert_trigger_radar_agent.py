@@ -53,16 +53,15 @@ class UpsertTriggerRadarAgentTests(unittest.TestCase):
         self.assertEqual(calls[1][0:2], ("/api/agents/existing-agent", "PUT"))
         self.assertFalse(calls[1][2]["enabled"])
 
-    def test_prepare_script_is_valid_and_uses_fixed_roster_contract(self):
+    def test_prepare_script_uses_signal_queue_and_consumer_acks_same_queue(self):
         subprocess.run(["bash", "-n", str(PREPARE_SCRIPT)], check=True)
         script = PREPARE_SCRIPT.read_text()
-
-        self.assertIn("website_change_events.py", script)
-        self.assertIn("ashtan-combined-deduplicated.csv", script)
-        self.assertIn("--name-column 'Company Name'", script)
-        self.assertIn("--url-column 'Website URL'", script)
-        self.assertIn("--api-key-file", script)
-        self.assertIn("nessie-trigger-radar-daily", script)
+        self.assertIn("trigger_signal_events.py", script)
+        self.assertIn("--producers ats feeds", script)
+        self.assertIn("/state/signal-events", script)
+        self.assertIn("trigger_signal_events.py ack", MODULE.PROMPT)
+        self.assertIn("/state/signal-events", MODULE.PROMPT)
+        self.assertNotIn("website-change-events", MODULE.PROMPT)
 
 
 if __name__ == "__main__":
