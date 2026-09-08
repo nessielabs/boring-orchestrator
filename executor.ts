@@ -134,6 +134,11 @@ function startRun(agent: Agent, prompt: string, lane: string, triggerPayload: st
   // Prompts can include large pre-script payloads. Passing them as argv can
   // exceed the OS argument-size limit before the provider process starts.
   const child = spawn(command, args, { ...spawnOpts, stdio: ["pipe", "pipe", "pipe"] });
+  // A child may exit before draining the prompt. Handle pipe errors separately
+  // from child-process errors so EPIPE cannot crash the orchestrator.
+  child.stdin!.on("error", (err) => {
+    appendTranscript(run.id, JSON.stringify({ type: "error", text: `stdin: ${err.message}` }));
+  });
   child.stdin!.end(stdin);
 
   let buffer = "";

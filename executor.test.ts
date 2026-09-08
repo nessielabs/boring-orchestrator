@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import childProcess from "node:child_process";
+import { syncBuiltinESMExports } from "node:module";
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
 import { createAgent, deleteAgent, getRun, type Agent } from "./db.js";
 import { buildProviderInvocation, executeAgent } from "./executor.js";
 
@@ -95,4 +99,26 @@ test("pre-script execution honors the per-agent timeout", (t) => {
 
 test("the test suite uses an isolated in-memory database", () => {
   assert.equal(process.env.BORING_ORCHESTRATOR_DATABASE_PATH, ":memory:");
+});
+
+test("an early provider exit cannot raise an unhandled stdin error", (t) => {
+  const child = new EventEmitter() as any;
+  child.stdin = new PassThrough();
+  child.stdout = new PassThrough();
+  child.stderr = new PassThrough();
+  const stub = t.mock.method(childProcess, "spawn", () => child);
+  syncBuiltinESMExports();
+  t.after(() => { stub.mock.restore(); syncBuiltinESMExports(); });
+  const agent = createAgent({
+    name: `early-exit-${crypto.randomUUID()}`, trigger_type: "manual", trigger_config: "",
+    provider: "claude", prompt: "test prompt", cwd: "", model: "claude-opus-5",
+    reasoning_effort: "", pre_script: "", pre_script_timeout_ms: 1000,
+    script_only: 0, lane_key: "", skip_permissions: 0, enabled: 0,
+  });
+  t.after(() => deleteAgent(agent.id));
+  const [id] = executeAgent(agent);
+  assert.doesNotThrow(() => child.stdin.emit("error", new Error("write EPIPE")));
+  child.emit("close", 1);
+  assert.equal(getRun(id)?.status, "error");
+  assert.match(getRun(id)?.transcript || "", /stdin: write EPIPE/);
 });
