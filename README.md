@@ -164,6 +164,12 @@ next-batch counts include that delivery field, so their byte totals include
 additional per-event overhead. The byte limit applies to the latter serialized
 delivery size, including the batch ID.
 
+Collection and queue transitions hold the state lock to prevent concurrent
+writers from losing events. A concurrent status/preview call can therefore
+wait behind a running collection. Summary calculation and output happen after
+releasing the lock and describe the loaded snapshot, which may subsequently
+change as another run progresses.
+
 After deploying this branch on Matrix, run the upsert to install the configuration
 in its disabled state:
 

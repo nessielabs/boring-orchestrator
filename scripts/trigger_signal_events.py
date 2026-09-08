@@ -65,7 +65,7 @@ def inspect_queue(args):
         state = store.load()
         if args.command == "preview":
             fill_backlog(state, store, args)
-        print(json.dumps(summary(state, args), sort_keys=True))
+    print(json.dumps(summary(state, args), sort_keys=True))
     return 0
 
 
