@@ -23,6 +23,17 @@ def invoke(command, root, *extra):
 
 
 class BatchLimitsTest(unittest.TestCase):
+    def test_bulk_selection_bounds_serialization_work_and_preserves_event_limit(self):
+        events = [event(str(company), n, "你好🙂") for company in range(100) for n in range(2)]
+        limits = argparse.Namespace(max_companies=80, max_events=150, max_input_bytes=100_000)
+        with patch.object(batches, "input_bytes", wraps=batches.input_bytes) as size:
+            selected, remaining, blocked = batches.select_batch(events, limits, "0" * 36)
+        self.assertEqual([e["eventId"] for e in selected], [e["eventId"] for e in events[:150]])
+        self.assertEqual(remaining, events[150:])
+        self.assertEqual(blocked, [])
+        # Guard against repeatedly serializing already-selected groups at bulk limits.
+        self.assertEqual(sum(len(call.args[0]) for call in size.call_args_list), len(events))
+
     def test_interleaved_company_events_stay_together_and_input_counts_utf8(self):
         events = [event("a", text="你好🙂" * 20), event("b"), event("a", 1)]
         expected = [{**e, "batchId": "0" * 36} for e in (events[0], events[2])]

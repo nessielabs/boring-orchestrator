@@ -29,12 +29,20 @@ def select_batch(events, args, batch_id):
     for event in events:
         groups.setdefault(company_key(event), []).append({**event, "batchId": batch_id})
     selected, deferred, blocked = [], [], []
+    selected_bytes = selected_companies = 0
     for company, group in groups.items():
-        if not fits(group, args):
-            blocked.append({"companyId": company, **metrics(group)})
+        group_metrics = metrics(group)
+        group_bytes = group_metrics["inputBytes"]
+        if (len(group) > args.max_events or group_bytes > args.max_input_bytes
+                or group_metrics["companies"] > args.max_companies):
+            blocked.append({"companyId": company, **group_metrics})
             deferred.extend(group)
-        elif fits(selected + group, args):
+        elif (selected_companies < args.max_companies
+              and len(selected) + len(group) <= args.max_events
+              and selected_bytes + group_bytes <= args.max_input_bytes):
             selected.extend(group)
+            selected_bytes += group_bytes
+            selected_companies += 1
         else:
             deferred.extend(group)
     # Deferred events have no delivery identity until selected for a real batch.
