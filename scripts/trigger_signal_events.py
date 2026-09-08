@@ -81,9 +81,7 @@ def prepare(args):
             return 0
         fill_backlog(state, store, args)
         batch_id = str(uuid.uuid4())
-        events, remaining, blocked = select_batch(state["backlog"], args, batch_id)
-        if blocked:
-            print(json.dumps({"oversizedCompanies": blocked}), file=sys.stderr)
+        events, remaining, _ = select_batch(state["backlog"], args, batch_id)
         if not events and remaining:
             raise MonitorError("all queued companies exceed batch limits; events retained. Inspect status")
         if events:
