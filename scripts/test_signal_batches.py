@@ -52,6 +52,21 @@ class BatchLimitsTest(unittest.TestCase):
 
 
 class BacklogTest(unittest.TestCase):
+    def test_daily_refresh_merges_new_events_without_expiring_queued_work(self):
+        with tempfile.TemporaryDirectory() as root:
+            store = pipeline.StateStore(Path(root))
+            with store.locked():
+                store.save({"schemaVersion": 1, "pending": None,
+                            "lastCollectedAt": "2020-01-01T00:00:00+00:00",
+                            "seen": ["done-0"], "backlog": [event("old")]})
+            with patch.object(pipeline, "collect", return_value=[event("new"), event("done")]):
+                result, output = invoke("preview", root, "--registry", "unused")
+                self.assertEqual(result, 0)
+                self.assertEqual(json.loads(output)["backlog"]["events"], 2)
+            state = store.load()
+            self.assertEqual([e["eventId"] for e in state["backlog"]], ["old-0", "new-0"])
+            self.assertNotEqual(state["lastCollectedAt"], "2020-01-01T00:00:00+00:00")
+
     def test_preview_then_restart_drain_replay_ack_and_no_duplicate_refetch(self):
         events = [event("a"), event("b"), event("a", 1), event("c")]
         with tempfile.TemporaryDirectory() as root:

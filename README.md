@@ -121,10 +121,11 @@ guarantee. Override with `--max-companies`, `--max-events`, and
 
 Collection saves the complete matching snapshot in a durable backlog. Each run
 selects one batch; acknowledgement marks only those events seen. Further runs
-drain the backlog before fetching again, so queued events cannot disappear as
-the 14-day lookback advances. This means a large backlog delays fresh collection;
-monitor the queue and run additional bounded batches when necessary. The agent
-does not loop over all batches in one execution.
+drain the backlog without refetching for 24 hours. After that, collection merges
+new candidates behind existing queued work; it never expires older queued events
+as the 14-day lookback advances. Pending deliveries always replay before any
+refresh. Monitor the queue and run additional bounded batches when necessary;
+the agent does not loop over all batches in one execution.
 
 An individual company exceeding the event or byte cap stays queued and is listed
 as oversized. Other companies can proceed. If only oversized work remains,
@@ -145,8 +146,9 @@ python3 scripts/trigger_signal_events.py status \
 ```
 
 Preview persists candidates but does not create or acknowledge a pending batch.
-If work already exists, it reports that queue without fetching. Status never
-collects. Both report pending/backlog counts, next-batch size, remaining work,
+If a delivery is pending, or the backlog was collected less than 24 hours ago,
+preview reports that queue without fetching. Status never collects. Both report
+the last collection time, pending/backlog counts, next-batch size, remaining work,
 and oversized companies. Pass the same limit overrides to preview/status and
 prepare when comparing the next batch. Use a separate state directory for trials.
 

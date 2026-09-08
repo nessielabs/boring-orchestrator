@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import uuid
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 try:
@@ -42,11 +43,19 @@ def collect(args):
 
 
 def fill_backlog(state, store, args):
-    # Drain a durable collection snapshot before fetching again. Queued events
-    # survive across runs even if their publication date leaves the lookback.
-    if not state.get("pending") and not state.get("backlog"):
+    # Rapid follow-up runs drain without refetching. Daily refresh merges new
+    # candidates without expiring older queued evidence or starving discovery.
+    now = datetime.now(timezone.utc)
+    last = state.get("lastCollectedAt")
+    due = not last or now - datetime.fromisoformat(last) >= timedelta(hours=24)
+    if not state.get("pending") and (not state.get("backlog") or due):
         seen = set(state.get("seen", []))
-        state["backlog"] = [e for e in collect(args) if e["eventId"] not in seen]
+        queued = {e["eventId"]: e for e in state.get("backlog", [])}
+        for event in collect(args):
+            if event["eventId"] not in seen:
+                queued.setdefault(event["eventId"], event)
+        state["backlog"] = list(queued.values())
+        state["lastCollectedAt"] = now.isoformat()
         store.save(state)
 
 

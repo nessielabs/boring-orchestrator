@@ -54,5 +54,6 @@ def summary(state, args):
             "remainingAfterNextBatch": metrics(backlog if pending else deferred),
             "pendingExceedsLimits": bool(pending and not fits(pending_events, args)),
             "oversizedCompanies": blocked,
+            "lastCollectedAt": state.get("lastCollectedAt"),
             "lastAcknowledgedBatchId": state.get("lastAcknowledgedBatchId"),
             "tokenEstimateBasis": "event JSONL UTF-8 bytes / 4; not a model token limit"}
