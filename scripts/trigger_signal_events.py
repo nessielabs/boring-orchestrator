@@ -123,7 +123,7 @@ def main(argv=None):
                           ("ack", acknowledge), ("status", inspect_queue)):
         child = sub.add_parser(name)
         child.add_argument("--state-dir", type=Path, required=True)
-        child.set_defaults(handler=handler, command=name)
+        child.set_defaults(handler=handler)
         if name != "ack":
             child.add_argument("--max-companies", type=positive_int, default=10)
             child.add_argument("--max-events", type=positive_int, default=40)
