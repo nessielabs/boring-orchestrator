@@ -12,6 +12,7 @@ REPOS=(
   "nessielabs/agents"
   "nessielabs/boring-orchestrator"
   "nessielabs/ubs"
+  "nessielabs/nesper"
   "nessielabs/nessie-notes-landing"
   "nessielabs/nessie-codebase"
   "nessielabs/nessie-grokbot"
