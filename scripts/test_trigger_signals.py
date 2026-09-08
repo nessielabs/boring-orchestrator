@@ -1,4 +1,8 @@
 import unittest
+from unittest.mock import patch, Mock
+from argparse import Namespace
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from scripts import trigger_signals as ts
 
@@ -24,6 +28,21 @@ class TriggerSignalsTest(unittest.TestCase):
         self.assertEqual(ts.detect_ats([], '<iframe src="https://boards.greenhouse.io/embed/job_board?for=acme">'), ("greenhouse", "acme"))
         self.assertEqual(ts.detect_ats(["https://jobs.lever.co/acme/123"], ""), ("lever", "acme"))
         self.assertIsNone(ts.detect_ats(["https://acme.example/careers"], ""))
+
+    def test_github_queries_each_config_and_uses_code_search_throttle(self):
+        company = {"id": "c", "name": "Acme", "homepage": "https://acme.example", "metadata": {}, "urls": {}}
+        queries = []
+        def github(args):
+            queries.append(args)
+            return []
+        with TemporaryDirectory() as tmp, patch.object(ts, "read_registry", return_value={"c": company}), patch.object(ts, "lookup_org_by_domain", return_value="acme"), patch.object(ts, "gh_json", side_effect=github), patch.object(ts, "finish", return_value=0):
+            ts.run_github(Namespace(registry=Path(tmp), state_dir=Path(tmp), map_cache_dir=Path(tmp), since_days=14, limit=1))
+        self.assertEqual(len(queries), 4)
+        for args in queries:
+            self.assertNotIn(" OR ", " ".join(args))
+        with patch.object(ts.subprocess, "run", return_value=Mock(returncode=0, stdout="[]")), patch("time.sleep") as sleep:
+            ts.gh_json(["api", "search/code"])
+            sleep.assert_called_once_with(6.5)
 
     def test_parses_rss_and_atom(self):
         rss = b'<rss><channel><item><title>How we use Claude Code</title><link>https://a.example/p</link><pubDate>Tue, 01 Sep 2026 10:00:00 GMT</pubDate><description>MCP everywhere</description></item></channel></rss>'

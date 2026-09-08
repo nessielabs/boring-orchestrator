@@ -376,8 +376,10 @@ def gh_json(args: Sequence[str]) -> Any:
     for attempt in range(4):
         result = subprocess.run(["gh", *args], capture_output=True, text=True, timeout=60)
         if result.returncode == 0:
-            if "search/" in " ".join(args):
-                time.sleep(2.5)  # GitHub search quota is 30 requests per minute
+            if "search/code" in " ".join(args):
+                time.sleep(6.5)  # GitHub code search allows 10 requests per minute
+            elif "search/" in " ".join(args):
+                time.sleep(2.5)  # other GitHub search endpoints allow 30 per minute
             return json.loads(result.stdout or "null")
         if "rate limit" in result.stderr.lower() and attempt < 3:
             time.sleep(65)
@@ -453,11 +455,17 @@ def run_github(args: argparse.Namespace) -> int:
     for entry in targets:
         org, company = entry["org"], entry["company"]
         company_ref = {"id": company["id"], "name": company["name"], "homepage": company["homepage"], "metadata": company["metadata"]}
-        try:
-            hits = gh_json(["api", "-X", "GET", "search/code", "-f", f"q=org:{org} filename:CLAUDE.md OR filename:AGENTS.md OR path:.cursor/rules OR path:.claude/skills", "-f", "per_page=30", "--jq", "[.items[] | {repo: .repository.full_name, path: .path, url: .html_url}]"])
-        except MonitorError as error:
+        hits: list[dict[str, str]] = []
+        failed = False
+        for qualifier in ("filename:CLAUDE.md", "filename:AGENTS.md", "path:.cursor/rules", "path:.claude/skills"):
+            try:
+                hits.extend(gh_json(["api", "-X", "GET", "search/code", "-f", f"q=org:{org} {qualifier}", "-f", "per_page=30", "--jq", "[.items[] | {repo: .repository.full_name, path: .path, url: .html_url}]"]) or [])
+            except MonitorError as error:
+                failed = True
+                errors[org] = str(error)
+                break
+        if failed:
             stats["errors"] += 1
-            errors[org] = str(error)
             continue
         by_repo: dict[str, list[dict[str, str]]] = {}
         for hit in hits or []:
