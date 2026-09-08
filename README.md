@@ -112,6 +112,44 @@ Only acknowledgement advances deduplication. Its default state directory is
 `/home/matrix/trigger-radar/state/signal-events`; the old website-change queue is
 separate and must not be consumed as a signal batch.
 
+The consumer receives at most **10 companies, 40 events, and 32,000 UTF-8 bytes of
+event JSONL** per run. Every company's events stay together. These limits bound
+the initial event input, not the full prompt or subsequent source/CRM tool
+results. Token estimates use bytes / 4 and are approximate, not a model token
+guarantee. Override with `--max-companies`, `--max-events`, and
+`--max-input-bytes` on the prepare command.
+
+Collection saves the complete matching snapshot in a durable backlog. Each run
+selects one batch; acknowledgement marks only those events seen. Further runs
+drain the backlog before fetching again, so queued events cannot disappear as
+the 14-day lookback advances. This means a large backlog delays fresh collection;
+monitor the queue and run additional bounded batches when necessary. The agent
+does not loop over all batches in one execution.
+
+An individual company exceeding the event or byte cap stays queued and is listed
+as oversized. Other companies can proceed. If only oversized work remains,
+prepare fails with no consumer input. Inspect the group before explicitly
+raising a limit; nothing is silently dropped or split. A legacy pending batch
+that exceeds new limits is also retained and blocked: reconcile any prior
+delivery before adjusting limits, rather than automatically assigning a new ID.
+
+To collect and size candidates **without invoking Opus or delivering a report**:
+
+```bash
+python3 scripts/trigger_signal_events.py preview \
+  --registry /home/matrix/trigger-radar/sources/source-registry.csv \
+  --state-dir /home/matrix/trigger-radar/state/signal-events \
+  --api-key-file /home/matrix/.config/firecrawl/api-key
+python3 scripts/trigger_signal_events.py status \
+  --state-dir /home/matrix/trigger-radar/state/signal-events
+```
+
+Preview persists candidates but does not create or acknowledge a pending batch.
+If work already exists, it reports that queue without fetching. Status never
+collects. Both report pending/backlog counts, next-batch size, remaining work,
+and oversized companies. Pass the same limit overrides to preview/status and
+prepare when comparing the next batch. Use a separate state directory for trials.
+
 After deploying this branch on Matrix, run the upsert to install the configuration
 in its disabled state:
 

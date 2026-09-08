@@ -20,5 +20,8 @@ exec python3 "$orchestrator_dir/scripts/trigger_signal_events.py" prepare \
   --state-dir "$state_dir" \
   --api-key-file "$api_key_file" \
   --producers ats feeds \
+  --max-companies 10 \
+  --max-events 40 \
+  --max-input-bytes 32000 \
   --workers 3 \
   --timeout-seconds 1200 "$@"
