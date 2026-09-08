@@ -43,8 +43,8 @@ def collect(args):
 
 
 def fill_backlog(state, store, args):
-    # Rapid follow-up runs drain without refetching. Daily refresh merges new
-    # candidates without expiring older queued evidence or starving discovery.
+    # Drain queued work without refetching for 24h; empty queues refetch now.
+    # Refresh merges new candidates without expiring older queued evidence.
     now = datetime.now(timezone.utc)
     last = state.get("lastCollectedAt")
     due = not last or now - datetime.fromisoformat(last) >= timedelta(hours=24)

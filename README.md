@@ -126,7 +126,9 @@ small groups for maximum packing; all deferred groups remain queued.
 
 Collection saves the complete matching snapshot in a durable backlog. Each run
 selects one batch; acknowledgement marks only those events seen. Further runs
-drain the backlog without refetching for 24 hours. After that, collection merges
+drain existing queued events without refetching for 24 hours. Once the queue is
+empty, the next prepare/preview recollects immediately, even within that window.
+With queued work remaining after 24 hours, collection merges
 new candidates behind existing queued work; it never expires older queued events
 as the 14-day lookback advances. Pending deliveries always replay before any
 refresh. Monitor the queue and run additional bounded batches when necessary;
@@ -151,7 +153,7 @@ python3 scripts/trigger_signal_events.py status \
 ```
 
 Preview persists candidates but does not create or acknowledge a pending batch.
-If a delivery is pending, or the backlog was collected less than 24 hours ago,
+If a delivery is pending, or a nonempty backlog was collected less than 24 hours ago,
 preview reports that queue without fetching. Status never collects. Both report
 the last collection time, pending/backlog counts, next-batch size, remaining work,
 and oversized companies. Pass the same limit overrides to preview/status and
