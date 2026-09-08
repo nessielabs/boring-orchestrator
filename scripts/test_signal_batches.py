@@ -82,3 +82,48 @@ class BacklogTest(unittest.TestCase):
                 self.assertEqual(state["backlog"], [])
             with patch.object(pipeline, "collect", return_value=events):
                 self.assertEqual(invoke("prepare", root, *options), (0, ""))
+
+    def test_oversized_backlog_is_durable_and_can_be_released_with_explicit_limit(self):
+        events = [event("large", n) for n in range(3)]
+        with tempfile.TemporaryDirectory() as root:
+            options = ["--registry", "unused", "--max-events", "2"]
+            with patch.object(pipeline, "collect", return_value=events):
+                self.assertEqual(invoke("prepare", root, *options), (1, ""))
+            state_path = Path(root) / "state.json"
+            before = state_path.read_bytes()
+            with patch.object(pipeline, "collect", side_effect=AssertionError("unexpected fetch")):
+                info = json.loads(invoke("status", root, "--max-events", "2")[1])
+                self.assertEqual(info["oversizedCompanies"][0]["companyId"], "large")
+                self.assertEqual(info["backlog"]["events"], 3)
+                self.assertEqual(state_path.read_bytes(), before)
+                result, output = invoke("prepare", root, "--registry", "unused", "--max-events", "3")
+                self.assertEqual(result, 0)
+                self.assertEqual(len(output.splitlines()), 3)
+
+    def test_existing_pending_batch_is_never_silently_split_on_lower_limit(self):
+        with tempfile.TemporaryDirectory() as root:
+            store = pipeline.StateStore(Path(root))
+            legacy = {"schemaVersion": 1, "pending": {"batchId": "legacy-id",
+                      "events": [{**event("a"), "batchId": "legacy-id"},
+                                 {**event("b"), "batchId": "legacy-id"}]}}
+            with store.locked():
+                store.save(legacy)
+            before = store.state_path.read_bytes()
+            with patch.object(pipeline, "collect", side_effect=AssertionError("unexpected fetch")):
+                self.assertEqual(invoke("prepare", root, "--registry", "unused", "--max-companies", "1"), (1, ""))
+                info = json.loads(invoke("status", root, "--max-companies", "1")[1])
+                self.assertTrue(info["pendingExceedsLimits"])
+                self.assertEqual(store.state_path.read_bytes(), before)
+                result, output = invoke("prepare", root, "--registry", "unused")
+                self.assertEqual(result, 0)
+                self.assertEqual([json.loads(line) for line in output.splitlines()], legacy["pending"]["events"])
+
+    def test_empty_preview_and_invalid_limits(self):
+        with tempfile.TemporaryDirectory() as root, patch.object(pipeline, "collect", return_value=[]):
+            info = json.loads(invoke("preview", root, "--registry", "unused")[1])
+            self.assertEqual(info["nextBatch"]["events"], 0)
+            self.assertIsNone(info["pendingBatchId"])
+            for flag in ("--max-events", "--max-companies", "--max-input-bytes"):
+                with self.assertRaises(SystemExit) as error:
+                    invoke("prepare", root, "--registry", "unused", flag, "0")
+                self.assertEqual(error.exception.code, 2)
