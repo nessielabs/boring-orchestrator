@@ -4,6 +4,8 @@ import io
 from pathlib import Path
 import subprocess
 import unittest
+import os
+import tempfile
 
 
 SCRIPT = Path(__file__).with_name("upsert-trigger-radar-agent.py")
@@ -52,6 +54,18 @@ class UpsertTriggerRadarAgentTests(unittest.TestCase):
 
         self.assertEqual(calls[1][0:2], ("/api/agents/existing-agent", "PUT"))
         self.assertFalse(calls[1][2]["enabled"])
+
+    def test_prepare_rejects_shared_api_key_without_launching_collector(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            registry = root / "registry.csv"
+            registry.write_text("header\n")
+            key = root / "key"
+            key.write_text("test-key")
+            key.chmod(0o644)
+            result = subprocess.run(["bash", str(PREPARE_SCRIPT)], env={**os.environ, "TRIGGER_RADAR_REGISTRY": str(registry), "FIRECRAWL_API_KEY_FILE": str(key), "BORING_ORCHESTRATOR_DIR": str(root / "missing")}, capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("mode 400 or 600", result.stderr)
 
     def test_prepare_script_uses_signal_queue_and_consumer_acks_same_queue(self):
         subprocess.run(["bash", "-n", str(PREPARE_SCRIPT)], check=True)
