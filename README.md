@@ -135,7 +135,10 @@ FIRECRAWL_API_KEY_FILE=/srv/secrets/firecrawl-key \
 pending must emit identical JSONL without fetching again. Save and inspect the
 consumer's report before acknowledging that trial batch with
 `trigger_signal_events.py ack --state-dir /srv/trigger-trial/state --batch-id ID`.
-A failed consumer must leave the batch pending. Do not enable the scheduled
+A failed consumer must leave the batch pending. Delivery is at-least-once:
+if Slack delivery succeeds but acknowledgement fails, an operator must reconcile
+the delivered batch before retrying, or the report can be sent again. The
+consumer reports that condition with the batch ID. Do not enable the scheduled
 agent until a real-source trial and delivery verification have succeeded.
 
 The standalone `trigger_signals.py github` collector is experimental and is not

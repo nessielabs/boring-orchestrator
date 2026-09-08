@@ -76,6 +76,12 @@ successfully, acknowledge that exact ID with:
 
 `python3 /home/matrix/boring-orchestrator/scripts/trigger_signal_events.py ack --state-dir /home/matrix/trigger-radar/state/signal-events --batch-id '<batchId>'`
 
+If acknowledgement fails after successful delivery, do not send the report
+again in this run. Send one short failure notice stating that delivery succeeded,
+include the batchId, and request operator reconciliation of the pending batch.
+The queue is at-least-once: a later retry can repeat a delivered report until
+acknowledgement succeeds. Do not claim exactly-once Slack delivery.
+
 If event interpretation, source verification, Nessie access, or delivery fails,
 send a short failure notice through the Lil Nessie sender and do not acknowledge
 the batch. The identical events will then be replayed on the next run.
