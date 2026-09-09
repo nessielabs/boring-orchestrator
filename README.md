@@ -61,6 +61,11 @@ If a legacy database exists in the checkout and no explicit path is set, startup
 refuses to create an empty replacement. Stop the application, back up and move
 the database, set the explicit path, then restart and verify existing history.
 
+New database directories are created with mode `0700` on POSIX systems. Existing
+directories keep their permissions; the engine does not change shared parent
+directories such as `~/.local`. When selecting an explicit database path, use a
+directory that is already private to the account running the engine.
+
 This is a trusted local tool. Agent prompts and pre-scripts can execute commands
 in your environment. Do not expose it publicly without your own access control.
 
