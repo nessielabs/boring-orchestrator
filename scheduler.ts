@@ -31,7 +31,7 @@ export function syncScheduler(): void {
 
     const agentName = agent.name;
     const agentId = agent.id;
-    const job = cron.schedule(agent.trigger_config, () => {
+    const job = cron.schedule(agent.trigger_config, async () => {
       console.log(`[scheduler] Cron callback fired for "${agentName}" (${agentId})`);
       try {
         // Re-read agent from DB to get latest prompt/config
@@ -45,7 +45,7 @@ export function syncScheduler(): void {
           return;
         }
         console.log(`[scheduler] Triggering agent "${freshAgent.name}" (cron: ${freshAgent.trigger_config})`);
-        executeAgent(freshAgent, JSON.stringify({ trigger: "cron", schedule: freshAgent.trigger_config }));
+        await executeAgent(freshAgent, JSON.stringify({ trigger: "cron", schedule: freshAgent.trigger_config }));
       } catch (err: any) {
         console.error(`[scheduler] ERROR in cron callback for "${agentName}":`, err.message || err);
       }

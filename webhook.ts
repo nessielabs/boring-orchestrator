@@ -1,9 +1,13 @@
 import { createHmac, timingSafeEqual } from "crypto";
-import type { Request, Response } from "express";
+import type { Request, Response, NextFunction } from "express";
 import { listAgents } from "./db.js";
 import { executeAgent } from "./executor.js";
 
-export function handleWebhook(req: Request, res: Response): void {
+export function handleWebhook(req: Request, res: Response, next: NextFunction): void {
+  void dispatchWebhook(req, res).catch(next);
+}
+
+async function dispatchWebhook(req: Request, res: Response): Promise<void> {
   const agents = listAgents().filter(
     (a) => a.trigger_type === "webhook" && a.enabled
   );
@@ -28,7 +32,7 @@ export function handleWebhook(req: Request, res: Response): void {
     const prompt = renderPrompt(agent.prompt, req.body);
     const agentWithPrompt = { ...agent, prompt };
 
-    const runIds = executeAgent(agentWithPrompt, payload);
+    const runIds = await executeAgent(agentWithPrompt, payload);
     if (runIds.length === 0) continue;
 
     triggered.push(...runIds);

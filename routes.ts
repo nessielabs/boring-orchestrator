@@ -121,12 +121,16 @@ router.delete("/api/agents/:id", (req, res) => {
 
 // --- Manual trigger ---
 
-router.post("/api/agents/:id/trigger", (req, res) => {
-  const agent = getAgent(req.params.id);
-  if (!agent) return res.status(404).json({ error: "Agent not found" });
-  const runIds = executeAgent(agent, JSON.stringify({ trigger: "manual" }));
-  if (runIds.length === 0) return res.json({ skipped: true, reason: "pre-script returned empty, exited non-zero, or all lanes are busy" });
-  res.json({ run_id: runIds[0], run_ids: runIds });
+router.post("/api/agents/:id/trigger", async (req, res, next) => {
+  try {
+    const agent = getAgent(req.params.id);
+    if (!agent) return res.status(404).json({ error: "Agent not found" });
+    const runIds = await executeAgent(agent, JSON.stringify({ trigger: "manual" }));
+    if (runIds.length === 0) return res.json({ skipped: true, reason: "pre-script empty/failed, agent disabled/deleted, or preparation/lanes busy" });
+    res.json({ run_id: runIds[0], run_ids: runIds });
+  } catch (error) {
+    next(error);
+  }
 });
 
 // --- Runs ---
