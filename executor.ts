@@ -9,13 +9,14 @@ async function runPreScript(agent: Agent): Promise<{ ok: boolean; output: string
   if (!agent.pre_script.trim()) return { ok: true, output: "" };
 
   try {
-    const { stdout } = await execAsync(agent.pre_script, {
+    const { stdout, stderr } = await execAsync(agent.pre_script, {
       cwd: agent.cwd || undefined,
       timeout: agent.pre_script_timeout_ms,
       encoding: "utf-8",
       shell: "/bin/bash",
       env: process.env,
     });
+    if (stderr) process.stderr.write(stderr);
     const output = stdout.trim();
 
     if (!output) {
@@ -25,6 +26,7 @@ async function runPreScript(agent: Agent): Promise<{ ok: boolean; output: string
 
     return { ok: true, output };
   } catch (err: any) {
+    if (err.stderr) process.stderr.write(err.stderr);
     const reason = err.killed && err.signal
       ? `timeout (${err.signal})`
       : `exit code ${err.code}`;
