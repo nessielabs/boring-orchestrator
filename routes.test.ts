@@ -82,3 +82,29 @@ test("pre-script timeouts must be positive and at most one hour", async () => {
     }
   });
 });
+
+test("a preparing agent leaves the API responsive and skips overlapping triggers", async () => {
+  await withServer(async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/agents`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "slow-preparation", trigger_type: "manual",
+        pre_script: "sleep 0.4; printf ready", script_only: true, enabled: false }),
+    });
+    const agent = await response.json() as { id: string };
+    let completed = false;
+    const trigger = fetch(`${baseUrl}/api/agents/${agent.id}/trigger`, { method: "POST" })
+      .then(async (r) => { completed = true; return await r.json() as { run_ids: string[] }; });
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      const read = await fetch(`${baseUrl}/api/agents/${agent.id}`);
+      assert.equal(read.status, 200);
+      assert.equal(completed, false, "reading the API must not wait for pre-script completion");
+      const duplicate = await fetch(`${baseUrl}/api/agents/${agent.id}/trigger`, { method: "POST" });
+      assert.equal((await duplicate.json() as { skipped: boolean }).skipped, true);
+      assert.equal((await trigger).run_ids.length, 1);
+    } finally {
+      await trigger;
+      deleteAgent(agent.id);
+    }
+  });
+});

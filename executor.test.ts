@@ -4,7 +4,7 @@ import childProcess from "node:child_process";
 import { syncBuiltinESMExports } from "node:module";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
-import { createAgent, deleteAgent, getRun, type Agent } from "./db.js";
+import { createAgent, deleteAgent, getRun, updateAgent, type Agent } from "./db.js";
 import { buildProviderInvocation, executeAgent } from "./executor.js";
 
 test("Claude prompts are streamed over stdin instead of argv", () => {
@@ -24,7 +24,7 @@ test("Claude prompts are streamed over stdin instead of argv", () => {
   assert.equal(invocation.args[0], "-p");
 });
 
-test("script-only agents record pre-script output without a provider run", (t) => {
+test("script-only agents record pre-script output without a provider run", async (t) => {
   const agent = createAgent({
     name: `script-only-test-${crypto.randomUUID()}`,
     trigger_type: "manual",
@@ -43,7 +43,7 @@ test("script-only agents record pre-script output without a provider run", (t) =
   });
   t.after(() => deleteAgent(agent.id));
 
-  const runIds = executeAgent(agent, JSON.stringify({ trigger: "test" }));
+  const runIds = await executeAgent(agent, JSON.stringify({ trigger: "test" }));
 
   assert.equal(runIds.length, 1);
   const run = getRun(runIds[0]);
@@ -53,7 +53,7 @@ test("script-only agents record pre-script output without a provider run", (t) =
   assert.equal(run?.num_turns, 0);
 });
 
-test("script-only agents without a pre-script fail closed", (t) => {
+test("script-only agents without a pre-script fail closed", async (t) => {
   const agent = createAgent({
     name: `invalid-script-only-test-${crypto.randomUUID()}`,
     trigger_type: "manual",
@@ -72,10 +72,10 @@ test("script-only agents without a pre-script fail closed", (t) => {
   });
   t.after(() => deleteAgent(agent.id));
 
-  assert.deepEqual(executeAgent(agent, JSON.stringify({ trigger: "test" })), []);
+  assert.deepEqual(await executeAgent(agent, JSON.stringify({ trigger: "test" })), []);
 });
 
-test("pre-script execution honors the per-agent timeout", (t) => {
+test("pre-script execution honors the per-agent timeout", async (t) => {
   const agent = createAgent({
     name: `pre-script-timeout-test-${crypto.randomUUID()}`,
     trigger_type: "manual",
@@ -94,14 +94,14 @@ test("pre-script execution honors the per-agent timeout", (t) => {
   });
   t.after(() => deleteAgent(agent.id));
 
-  assert.deepEqual(executeAgent(agent, JSON.stringify({ trigger: "test" })), []);
+  assert.deepEqual(await executeAgent(agent, JSON.stringify({ trigger: "test" })), []);
 });
 
 test("the test suite uses an isolated in-memory database", () => {
   assert.equal(process.env.BORING_ORCHESTRATOR_DATABASE_PATH, ":memory:");
 });
 
-test("an early provider exit cannot raise an unhandled stdin error", (t) => {
+test("an early provider exit cannot raise an unhandled stdin error", async (t) => {
   const child = new EventEmitter() as any;
   child.stdin = new PassThrough();
   child.stdout = new PassThrough();
@@ -116,9 +116,25 @@ test("an early provider exit cannot raise an unhandled stdin error", (t) => {
     script_only: 0, lane_key: "", skip_permissions: 0, enabled: 0,
   });
   t.after(() => deleteAgent(agent.id));
-  const [id] = executeAgent(agent);
+  const [id] = await executeAgent(agent);
   assert.doesNotThrow(() => child.stdin.emit("error", new Error("write EPIPE")));
   child.emit("close", 1);
   assert.equal(getRun(id)?.status, "error");
   assert.match(getRun(id)?.transcript || "", /stdin: write EPIPE/);
 });
+
+for (const change of ["disable", "delete"] as const) {
+  test(`an agent ${change}d during preparation cannot start`, async (t) => {
+    const agent = createAgent({
+      name: `cancel-preparation-${change}`, trigger_type: "manual", trigger_config: "",
+      provider: "claude", prompt: "", cwd: "", model: "claude-haiku-4-5",
+      reasoning_effort: "", pre_script: "sleep 0.1; printf ready", pre_script_timeout_ms: 1000,
+      script_only: 1, lane_key: "", skip_permissions: 0, enabled: 1,
+    });
+    t.after(() => deleteAgent(agent.id));
+    const pending = executeAgent(agent);
+    if (change === "disable") updateAgent(agent.id, { enabled: 0 });
+    else deleteAgent(agent.id);
+    assert.deepEqual(await pending, []);
+  });
+}

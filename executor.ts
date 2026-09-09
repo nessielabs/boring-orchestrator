@@ -1,18 +1,23 @@
-import { spawn, execSync } from "child_process";
-import { createRun, appendTranscript, finishRun, hasRunningRun, type Agent } from "./db.js";
+import { spawn, exec } from "child_process";
+import { promisify } from "node:util";
+import { createRun, appendTranscript, finishRun, hasRunningRun, getAgent, type Agent } from "./db.js";
 import { computeOpenAICost } from "./pricing.js";
 
-function runPreScript(agent: Agent): { ok: boolean; output: string } {
+const execAsync = promisify(exec);
+
+async function runPreScript(agent: Agent): Promise<{ ok: boolean; output: string }> {
   if (!agent.pre_script.trim()) return { ok: true, output: "" };
 
   try {
-    const output = execSync(agent.pre_script, {
+    const { stdout, stderr } = await execAsync(agent.pre_script, {
       cwd: agent.cwd || undefined,
       timeout: agent.pre_script_timeout_ms,
       encoding: "utf-8",
       shell: "/bin/bash",
       env: process.env,
-    }).trim();
+    });
+    if (stderr) process.stderr.write(stderr);
+    const output = stdout.trim();
 
     if (!output) {
       console.log(`[executor] Agent "${agent.name}" pre-script returned empty output, skipping run`);
@@ -21,9 +26,10 @@ function runPreScript(agent: Agent): { ok: boolean; output: string } {
 
     return { ok: true, output };
   } catch (err: any) {
-    const reason = err.status === null && err.signal
+    if (err.stderr) process.stderr.write(err.stderr);
+    const reason = err.killed && err.signal
       ? `timeout (${err.signal})`
-      : `exit code ${err.status}`;
+      : `exit code ${err.code}`;
     console.log(`[executor] Agent "${agent.name}" pre-script failed: ${reason}, skipping run`);
     return { ok: false, output: err.stdout?.trim() || "" };
   }
@@ -49,7 +55,24 @@ function partitionByLane(output: string, laneKey: string): Map<string, string[]>
 // Returns the ids of runs started this tick (empty when everything was
 // skipped). Laneless agents start at most one run; agents with a lane_key
 // start one run per lane, serialized within a lane, parallel across lanes.
-export function executeAgent(agent: Agent, triggerPayload?: string): string[] {
+const preparingAgents = new Set<string>();
+
+export async function executeAgent(agent: Agent, triggerPayload?: string): Promise<string[]> {
+  if (preparingAgents.has(agent.id)) return [];
+  preparingAgents.add(agent.id);
+  try {
+    return await executePreparedAgent(agent, triggerPayload);
+  } finally {
+    preparingAgents.delete(agent.id);
+  }
+}
+
+function stillConfigured(agent: Agent): boolean {
+  const current = getAgent(agent.id);
+  return !!current && !(agent.enabled && !current.enabled);
+}
+
+async function executePreparedAgent(agent: Agent, triggerPayload?: string): Promise<string[]> {
   const laneKey = agent.lane_key?.trim() || "";
 
   // API validation prevents this state, but keep execution fail-closed for
@@ -65,8 +88,8 @@ export function executeAgent(agent: Agent, triggerPayload?: string): string[] {
       console.log(`[executor] Agent "${agent.name}" already has a running run, skipping`);
       return [];
     }
-    const pre = runPreScript(agent);
-    if (!pre.ok) return [];
+    const pre = await runPreScript(agent);
+    if (!pre.ok || !stillConfigured(agent)) return [];
     if (agent.script_only) {
       return [recordScriptOnlyRun(agent, "", triggerPayload, pre.output)];
     }
@@ -76,8 +99,8 @@ export function executeAgent(agent: Agent, triggerPayload?: string): string[] {
     return [startRun(agent, prompt, "", triggerPayload, pre.output)];
   }
 
-  const pre = runPreScript(agent);
-  if (!pre.ok) return [];
+  const pre = await runPreScript(agent);
+  if (!pre.ok || !stillConfigured(agent)) return [];
 
   const runIds: string[] = [];
   for (const [lane, lines] of partitionByLane(pre.output, laneKey)) {
