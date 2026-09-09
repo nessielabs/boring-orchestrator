@@ -4,7 +4,7 @@ import childProcess from "node:child_process";
 import { syncBuiltinESMExports } from "node:module";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
-import { createAgent, deleteAgent, getRun, type Agent } from "./db.js";
+import { createAgent, deleteAgent, getRun, updateAgent, type Agent } from "./db.js";
 import { buildProviderInvocation, executeAgent } from "./executor.js";
 
 test("Claude prompts are streamed over stdin instead of argv", () => {
@@ -122,3 +122,19 @@ test("an early provider exit cannot raise an unhandled stdin error", async (t) =
   assert.equal(getRun(id)?.status, "error");
   assert.match(getRun(id)?.transcript || "", /stdin: write EPIPE/);
 });
+
+for (const change of ["disable", "delete"] as const) {
+  test(`an agent ${change}d during preparation cannot start`, async (t) => {
+    const agent = createAgent({
+      name: `cancel-preparation-${change}`, trigger_type: "manual", trigger_config: "",
+      provider: "claude", prompt: "", cwd: "", model: "claude-haiku-4-5",
+      reasoning_effort: "", pre_script: "sleep 0.1; printf ready", pre_script_timeout_ms: 1000,
+      script_only: 1, lane_key: "", skip_permissions: 0, enabled: 1,
+    });
+    t.after(() => deleteAgent(agent.id));
+    const pending = executeAgent(agent);
+    if (change === "disable") updateAgent(agent.id, { enabled: 0 });
+    else deleteAgent(agent.id);
+    assert.deepEqual(await pending, []);
+  });
+}
